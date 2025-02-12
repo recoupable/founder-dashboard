@@ -3,7 +3,13 @@ import { stripe } from '@/lib/stripe'
 import { supabase } from '@/lib/supabase'
 import { PrivyClient } from '@privy-io/server-auth'
 
-const privyClient = new PrivyClient(process.env.PRIVY_API_KEY!)
+const privyClient = new PrivyClient(
+  process.env.NEXT_PUBLIC_PRIVY_APP_ID!,
+  process.env.PRIVY_API_KEY!,
+  {
+    apiURL: 'https://auth.privy.io'
+  }
+)
 
 export async function GET() {
   try {

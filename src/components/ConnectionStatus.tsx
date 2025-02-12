@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CheckCircle2, XCircle, ChevronDown } from 'lucide-react'
+import { CheckCircle2, ChevronDown } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,

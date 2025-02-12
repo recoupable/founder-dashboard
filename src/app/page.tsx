@@ -1,10 +1,13 @@
 import React from 'react'
 import { CreditCard, Users, DollarSign, CheckCircle2, XCircle, TrendingUp, TrendingDown } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { getPayingCustomersCount } from '@/lib/stripe'
 import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { ConnectionStatus } from '@/components/ConnectionStatus'
+
+// Manual enterprise customers count
+const ENTERPRISE_CUSTOMERS_COUNT = 3; // Tyler, Megan, and Luh Tyler
 
 // Format number as currency
 const formatCurrency = (value: number) => {
@@ -20,9 +23,6 @@ const formatCurrency = (value: number) => {
 const getCurrentMonth = () => {
   return new Date().toLocaleString('default', { month: 'long' });
 }
-
-// Manual enterprise customers count
-const ENTERPRISE_CUSTOMERS_COUNT = 3; // Tyler, Megan, and Luh Tyler
 
 // Format percentage change
 const formatPercentChange = (current: number, previous: number): string => {
@@ -40,7 +40,7 @@ export default async function Dashboard() {
     getMonthlyFinancials(),
   ])
 
-  // Calculate active users difference
+  // Calculate active users difference and percent change
   const activeUsersDiff = activeUsers - lastMonthActiveUsers;
   const activeUsersPercentChange = formatPercentChange(activeUsers, lastMonthActiveUsers);
 
@@ -77,7 +77,7 @@ export default async function Dashboard() {
                   ) : (
                     <TrendingDown className="h-3 w-3" />
                   )}
-                  <span>{Math.abs(activeUsersDiff)} users</span>
+                  <span>{activeUsersPercentChange}%</span>
                 </div>
                 <span className="text-muted-foreground">vs previous 30 days</span>
               </div>

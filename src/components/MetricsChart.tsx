@@ -89,7 +89,7 @@ export default function MetricsChart({ className }: MetricsChartProps) {
     }
 
     fetchHistoricalData()
-  }, [selectedTimeframe])
+  }, [selectedTimeframe, selectedDataset])
 
   const updateDisplayedData = (chartData: ChartData, datasetType: DatasetType) => {
     const dataset = chartData.datasets.find(ds => 
