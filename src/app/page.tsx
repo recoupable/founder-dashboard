@@ -1,101 +1,194 @@
-import Image from "next/image";
+import React from 'react'
+import { CreditCard, Users, DollarSign, CheckCircle2, XCircle, TrendingUp, TrendingDown } from 'lucide-react'
+import { getPayingCustomersCount } from '@/lib/stripe'
+import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
+import { getMonthlyFinancials } from '@/lib/finance'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConnectionStatus } from '@/components/ConnectionStatus'
 
-export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+// Format number as currency
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
 }
+
+// Get current month name
+const getCurrentMonth = () => {
+  return new Date().toLocaleString('default', { month: 'long' });
+}
+
+// Manual enterprise customers count
+const ENTERPRISE_CUSTOMERS_COUNT = 3; // Tyler, Megan, and Luh Tyler
+
+// Format percentage change
+const formatPercentChange = (current: number, previous: number): string => {
+  if (previous === 0) return '0.0%';
+  const percentChange = ((current - previous) / previous) * 100;
+  return `${percentChange.toFixed(1)}%`;
+};
+
+export default async function Dashboard() {
+  // Fetch metrics in parallel
+  const [stripeCustomers, activeUsers, lastMonthActiveUsers, financials] = await Promise.all([
+    getPayingCustomersCount(),
+    getActiveUsersCount(),
+    getLastMonthActiveUsersCount(),
+    getMonthlyFinancials(),
+  ])
+
+  // Calculate active users difference
+  const activeUsersDiff = activeUsers - lastMonthActiveUsers;
+  const activeUsersPercentChange = formatPercentChange(activeUsers, lastMonthActiveUsers);
+
+  // Calculate total paying customers
+  const totalPayingCustomers = stripeCustomers + ENTERPRISE_CUSTOMERS_COUNT;
+
+  return (
+    <main className="p-8">
+      <div className="max-w-7xl mx-auto space-y-8">
+        <div className="flex justify-between items-center">
+          <h1 className="text-4xl font-bold tracking-tight">Recoup Founder Dashboard</h1>
+          <ConnectionStatus className="w-auto" />
+        </div>
+        
+        {/* Main Metrics Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Monthly Active Users Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Rolling Active Users
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Users active in the last 30 days
+                </span>
+              </CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{activeUsers}</div>
+              <div className="flex items-center gap-2 text-xs">
+                <div className={`flex items-center gap-1 ${activeUsersDiff >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {activeUsersDiff >= 0 ? (
+                    <TrendingUp className="h-3 w-3" />
+                  ) : (
+                    <TrendingDown className="h-3 w-3" />
+                  )}
+                  <span>{Math.abs(activeUsersDiff)} users</span>
+                </div>
+                <span className="text-muted-foreground">vs previous 30 days</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Paying Customers Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Paying Customers
+              </CardTitle>
+              <CreditCard className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalPayingCustomers}</div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <div>
+                  <div className="font-medium text-foreground">{ENTERPRISE_CUSTOMERS_COUNT}</div>
+                  Enterprise
+                </div>
+                <div>
+                  <div className="font-medium text-foreground">{stripeCustomers}</div>
+                  Non-Enterprise
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* MRR Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                Monthly Recurring Revenue
+              </CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(financials.revenue.mrr)}</div>
+              <p className="text-xs text-muted-foreground">
+                Monthly recurring revenue
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Financial Breakdown Card */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              {getCurrentMonth()} Financial Breakdown
+            </CardTitle>
+            {financials.profit.isProfit ? (
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+            ) : (
+              <XCircle className="h-4 w-4 text-red-500" />
+            )}
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Revenue Section */}
+              <div>
+                <h3 className="font-medium mb-2">Revenue</h3>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Monthly Recurring Revenue</span>
+                    <span>{formatCurrency(financials.revenue.mrr)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Monthly Grant</span>
+                    <span>{formatCurrency(financials.revenue.grants)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium pt-1 border-t">
+                    <span>Total Revenue</span>
+                    <span>{formatCurrency(financials.revenue.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Expenses Section */}
+              <div>
+                <h3 className="font-medium mb-2">Expenses</h3>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Development</span>
+                    <span>{formatCurrency(financials.expenses.development)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Operational Costs</span>
+                    <span>{formatCurrency(financials.expenses.operational)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium pt-1 border-t">
+                    <span>Total Expenses</span>
+                    <span>{formatCurrency(financials.expenses.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Net Profit Section */}
+              <div className="pt-2 border-t">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Net Profit</span>
+                  <span className={`text-lg font-bold ${financials.profit.isProfit ? 'text-green-500' : 'text-red-500'}`}>
+                    {financials.profit.isProfit ? '+' : '-'} {formatCurrency(financials.profit.amount)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  )
+} 
