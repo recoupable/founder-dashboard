@@ -6,6 +6,9 @@ import { getPayingCustomersCount } from '@/lib/stripe'
 import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
 
+// Force dynamic rendering to ensure fresh data on each request
+export const dynamic = 'force-dynamic';
+
 // Manual enterprise customers count
 const ENTERPRISE_CUSTOMERS_COUNT = 3; // Tyler, Megan, and Luh Tyler
 

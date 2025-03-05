@@ -41,8 +41,8 @@ const cache: Cache = {
   metrics: {}
 };
 
-// Cache duration in milliseconds (15 minutes)
-const CACHE_DURATION = 15 * 60 * 1000;
+// Cache duration in milliseconds (1 minute)
+const CACHE_DURATION = 1 * 60 * 1000;
 
 // Rate limiting
 let lastApiCall = 0;
