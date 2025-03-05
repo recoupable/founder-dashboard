@@ -29,8 +29,8 @@ const cache: Cache = {
   activeUsersTimestamp: 0
 };
 
-// Cache duration (5 minutes)
-const CACHE_DURATION = 5 * 60 * 1000;
+// Cache duration (1 minute)
+const CACHE_DURATION = 1 * 60 * 1000;
 
 // Function to get users with caching
 async function getCachedUsers(): Promise<User[]> {
