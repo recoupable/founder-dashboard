@@ -43,9 +43,18 @@ export default async function Dashboard() {
     getMonthlyFinancials(),
   ])
 
-  // Calculate active users difference and percent change
-  const activeUsersDiff = activeUsers - lastMonthActiveUsers;
-  const activeUsersPercentChange = formatPercentChange(activeUsers, lastMonthActiveUsers);
+  // Check if we have valid data
+  const hasValidActiveUsers = activeUsers >= 0;
+  const hasValidLastMonthActiveUsers = lastMonthActiveUsers >= 0;
+
+  // Calculate active users difference and percent change only if we have valid data
+  const activeUsersDiff = hasValidActiveUsers && hasValidLastMonthActiveUsers 
+    ? activeUsers - lastMonthActiveUsers 
+    : 0;
+    
+  const activeUsersPercentChange = hasValidActiveUsers && hasValidLastMonthActiveUsers 
+    ? formatPercentChange(activeUsers, lastMonthActiveUsers)
+    : '0.0';
 
   // Calculate total paying customers
   const totalPayingCustomers = stripeCustomers + ENTERPRISE_CUSTOMERS_COUNT;
@@ -72,18 +81,31 @@ export default async function Dashboard() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{activeUsers}</div>
-              <div className="flex items-center gap-2 text-xs">
-                <div className={`flex items-center gap-1 ${activeUsersDiff >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {activeUsersDiff >= 0 ? (
-                    <TrendingUp className="h-3 w-3" />
+              {hasValidActiveUsers ? (
+                <>
+                  <div className="text-2xl font-bold">{activeUsers}</div>
+                  {hasValidLastMonthActiveUsers ? (
+                    <div className="flex items-center gap-2 text-xs">
+                      <div className={`flex items-center gap-1 ${activeUsersDiff >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {activeUsersDiff >= 0 ? (
+                          <TrendingUp className="h-3 w-3" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3" />
+                        )}
+                        <span>{activeUsersPercentChange}%</span>
+                      </div>
+                      <span className="text-muted-foreground">vs previous 30 days</span>
+                    </div>
                   ) : (
-                    <TrendingDown className="h-3 w-3" />
+                    <div className="text-xs text-amber-500">Previous period data unavailable</div>
                   )}
-                  <span>{activeUsersPercentChange}%</span>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-2xl font-bold text-red-500">Error</div>
+                  <div className="text-xs text-red-500">Unable to fetch active users data</div>
                 </div>
-                <span className="text-muted-foreground">vs previous 30 days</span>
-              </div>
+              )}
             </CardContent>
           </Card>
 

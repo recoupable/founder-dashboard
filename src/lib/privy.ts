@@ -38,11 +38,14 @@ async function getCachedUsers(): Promise<User[]> {
   
   // If cache is valid, return cached data
   if (cache.users && (now - cache.timestamp) < CACHE_DURATION) {
+    console.log('Using cached users data, count:', cache.users.length);
     return cache.users;
   }
 
   try {
+    console.log('Fetching users directly from Privy API...');
     const users = await privy.getUsers();
+    console.log('Privy API returned users count:', users.length);
     
     // Update cache
     cache.users = users;
@@ -54,7 +57,7 @@ async function getCachedUsers(): Promise<User[]> {
     
     // If cache exists but is expired, use it as fallback
     if (cache.users) {
-      console.log('Using expired cache as fallback due to API error');
+      console.log('Using expired cache as fallback due to API error, count:', cache.users.length);
       return cache.users;
     }
     
@@ -68,13 +71,18 @@ export async function getActiveUsersCount(): Promise<number> {
   
   // If cache is valid, return cached count
   if (cache.activeUsers !== null && (now - cache.activeUsersTimestamp) < CACHE_DURATION) {
+    console.log('Using cached active users count:', cache.activeUsers);
     return cache.activeUsers;
   }
 
   try {
+    console.log('Fetching users from Privy...');
     const users = await getCachedUsers();
+    console.log('Fetched users count:', users.length);
+    
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    console.log('Thirty days ago:', thirtyDaysAgo.toISOString());
     
     const activeUsers = users.filter((user: User) => {
       if (!user.linkedAccounts || user.linkedAccounts.length === 0) {
@@ -90,6 +98,8 @@ export async function getActiveUsersCount(): Promise<number> {
       return mostRecentActivity >= thirtyDaysAgo;
     }).length;
 
+    console.log('Calculated active users:', activeUsers);
+    
     // Update cache
     cache.activeUsers = activeUsers;
     cache.activeUsersTimestamp = now;
@@ -104,20 +114,22 @@ export async function getActiveUsersCount(): Promise<number> {
       return cache.activeUsers;
     }
     
-    return 0;
+    // Return -1 to indicate an error
+    return -1;
   }
 }
 
 // Function to get previous 30-day active users count for comparison
 export async function getLastMonthActiveUsersCount(): Promise<number> {
   try {
+    console.log('Calculating last month active users...');
     const users = await getCachedUsers();
     const sixtyDaysAgo = new Date();
     const thirtyDaysAgo = new Date();
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    return users.filter((user: User) => {
+    const lastMonthActiveUsers = users.filter((user: User) => {
       if (!user.linkedAccounts || user.linkedAccounts.length === 0) {
         return false;
       }
@@ -129,8 +141,12 @@ export async function getLastMonthActiveUsersCount(): Promise<number> {
 
       return mostRecentActivity >= sixtyDaysAgo && mostRecentActivity < thirtyDaysAgo;
     }).length;
+
+    console.log('Calculated last month active users:', lastMonthActiveUsers);
+    
+    return lastMonthActiveUsers;
   } catch (error) {
     console.error('Error calculating previous month active users:', error);
-    return 0;
+    return -1;
   }
 } 
