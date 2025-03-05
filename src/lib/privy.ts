@@ -19,6 +19,9 @@ interface Cache {
   timestamp: number;
   activeUsers: number | null;
   activeUsersTimestamp: number;
+  lastMonthActiveUsers: number | null;
+  lastMonthActiveUsersTimestamp: number;
+  fetchInProgress: boolean;
 }
 
 // Initialize cache
@@ -26,13 +29,23 @@ const cache: Cache = {
   users: null,
   timestamp: 0,
   activeUsers: null,
-  activeUsersTimestamp: 0
+  activeUsersTimestamp: 0,
+  lastMonthActiveUsers: null,
+  lastMonthActiveUsersTimestamp: 0,
+  fetchInProgress: false
 };
 
-// Cache duration (1 minute)
-const CACHE_DURATION = 1 * 60 * 1000;
+// Cache duration (1 hour instead of 1 minute)
+const CACHE_DURATION = 60 * 60 * 1000;
 
-// Function to get users with caching
+// Retry configuration
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
+// Helper function to wait
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Function to get users with caching and retries
 async function getCachedUsers(): Promise<User[]> {
   const now = Date.now();
   
@@ -42,18 +55,58 @@ async function getCachedUsers(): Promise<User[]> {
     return cache.users;
   }
 
+  // If a fetch is already in progress, wait for it to complete
+  if (cache.fetchInProgress) {
+    console.log('Fetch already in progress, waiting...');
+    // Wait for the fetch to complete (poll every 100ms)
+    while (cache.fetchInProgress) {
+      await wait(100);
+    }
+    
+    // If cache was updated while waiting, return it
+    if (cache.users) {
+      console.log('Using newly fetched users data, count:', cache.users.length);
+      return cache.users;
+    }
+  }
+
+  // Set fetch in progress flag
+  cache.fetchInProgress = true;
+  
+  let lastError: Error | unknown = null;
+  
   try {
-    console.log('Fetching users directly from Privy API...');
-    const users = await privy.getUsers();
-    console.log('Privy API returned users count:', users.length);
+    // Try multiple times with exponential backoff
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`Fetching users directly from Privy API (attempt ${attempt}/${MAX_RETRIES})...`);
+        console.log('Using Privy App ID:', process.env.NEXT_PUBLIC_PRIVY_APP_ID?.substring(0, 5) + '...');
+        console.log('API URL:', 'https://auth.privy.io');
+        
+        const users = await privy.getUsers();
+        console.log('Privy API returned users count:', users.length);
+        
+        // Update cache
+        cache.users = users;
+        cache.timestamp = now;
+        
+        return users;
+      } catch (error) {
+        lastError = error;
+        console.error(`Error fetching users from Privy (attempt ${attempt}/${MAX_RETRIES}):`, error);
+        console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+        
+        // If not the last attempt, wait before retrying
+        if (attempt < MAX_RETRIES) {
+          const delayTime = RETRY_DELAY * Math.pow(2, attempt - 1); // Exponential backoff
+          console.log(`Retrying in ${delayTime}ms...`);
+          await wait(delayTime);
+        }
+      }
+    }
     
-    // Update cache
-    cache.users = users;
-    cache.timestamp = now;
-    
-    return users;
-  } catch (error) {
-    console.error('Error fetching users from Privy:', error);
+    // All retries failed
+    console.error('All retry attempts failed');
     
     // If cache exists but is expired, use it as fallback
     if (cache.users) {
@@ -61,7 +114,10 @@ async function getCachedUsers(): Promise<User[]> {
       return cache.users;
     }
     
-    throw error;
+    throw lastError;
+  } finally {
+    // Reset fetch in progress flag
+    cache.fetchInProgress = false;
   }
 }
 
@@ -76,9 +132,8 @@ export async function getActiveUsersCount(): Promise<number> {
   }
 
   try {
-    console.log('Fetching users from Privy...');
+    console.log('Calculating active users count...');
     const users = await getCachedUsers();
-    console.log('Fetched users count:', users.length);
     
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -121,6 +176,14 @@ export async function getActiveUsersCount(): Promise<number> {
 
 // Function to get previous 30-day active users count for comparison
 export async function getLastMonthActiveUsersCount(): Promise<number> {
+  const now = Date.now();
+  
+  // If cache is valid, return cached count
+  if (cache.lastMonthActiveUsers !== null && (now - cache.lastMonthActiveUsersTimestamp) < CACHE_DURATION) {
+    console.log('Using cached last month active users count:', cache.lastMonthActiveUsers);
+    return cache.lastMonthActiveUsers;
+  }
+  
   try {
     console.log('Calculating last month active users...');
     const users = await getCachedUsers();
@@ -144,9 +207,20 @@ export async function getLastMonthActiveUsersCount(): Promise<number> {
 
     console.log('Calculated last month active users:', lastMonthActiveUsers);
     
+    // Update cache
+    cache.lastMonthActiveUsers = lastMonthActiveUsers;
+    cache.lastMonthActiveUsersTimestamp = now;
+    
     return lastMonthActiveUsers;
   } catch (error) {
     console.error('Error calculating previous month active users:', error);
+    
+    // If cache exists, use it as fallback
+    if (cache.lastMonthActiveUsers !== null) {
+      console.log('Using expired last month active users cache as fallback');
+      return cache.lastMonthActiveUsers;
+    }
+    
     return -1;
   }
 } 
