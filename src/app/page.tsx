@@ -63,7 +63,7 @@ export default async function Dashboard() {
     <main className="p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="flex justify-between items-center">
-          <h1 className="text-4xl font-bold tracking-tight">Recoup Founder Dashboard</h1>
+          <h1 className="text-4xl font-bold tracking-tight">Dashboard</h1>
           <ConnectionStatus className="w-auto" />
         </div>
         
