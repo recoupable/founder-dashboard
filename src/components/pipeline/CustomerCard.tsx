@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react'
-import { Customer, Todo } from '@/lib/customerService'
+import { Customer } from '@/lib/customerService'
 import Image from 'next/image'
 import { formatCurrency } from '@/lib/utils'
 import { ChevronDown, ChevronUp, Check, Square } from 'lucide-react'
@@ -49,238 +49,146 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
     // Parse the date string
     const lastContact = new Date(dateString);
     
-    // For this application, we're treating today as March 6, 2025
-    const today = new Date('2025-03-06');
-    
-    // Get date from 2 weeks ago (from today)
-    const twoWeeksAgo = new Date('2025-03-06');
+    // Calculate date from two weeks ago
+    const twoWeeksAgo = new Date();
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
     
-    // For debugging
-    console.log(`Last contact: ${lastContact.toISOString()}, Two weeks ago: ${twoWeeksAgo.toISOString()}, Today: ${today.toISOString()}, Is overdue: ${lastContact < twoWeeksAgo}`);
-    
-    // Return true if last contact is before two weeks ago (meaning it's overdue)
+    // Return true if last contact is before two weeks ago (overdue)
     return lastContact < twoWeeksAgo;
   };
   
-  // Handle drag start
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.setData('customerId', customer.id);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  
-  // Calculate days left in trial if applicable
-  const getDaysLeftInTrial = () => {
-    if (customer.stage !== 'Free Trial' || !customer.trial_end_date) return null;
-    
-    const today = new Date();
-    const endDate = new Date(customer.trial_end_date);
-    const diffTime = endDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    return diffDays > 0 ? diffDays : 0;
-  };
-  
-  const trialDays = getDaysLeftInTrial();
-  
-  // Toggle expanded state
-  const toggleExpanded = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsExpanded(!isExpanded);
-  };
-  
-  // Parse todos if it's a string
-  const parseTodos = (todos: unknown): Todo[] => {
-    if (!todos) return [];
-    if (typeof todos === 'string') {
-      try {
-        return JSON.parse(todos);
-      } catch (e) {
-        console.error('Error parsing todos:', e);
-        return [];
-      }
-    }
-    return Array.isArray(todos) ? todos : [];
-  };
-  
-  // Get todos as array
-  const todosArray = parseTodos(customer.todos);
-  
-  // Get incomplete todos count
-  const incompleteTodosCount = todosArray.filter((todo: Todo) => !todo.completed).length;
-  
   return (
     <div 
-      className={`bg-white rounded-md shadow-sm transition-all duration-200 ${
-        isSelected ? 'ring-2 ring-blue-500' : ''
-      } ${isExpanded ? 'pb-3' : ''} hover:shadow-md cursor-pointer mb-4`}
-      onClick={() => onClick?.(customer)}
-      draggable={true}
-      onDragStart={handleDragStart}
+      className={`bg-white rounded-lg shadow-sm mb-3 overflow-hidden border ${
+        isSelected ? 'ring-2 ring-primary' : ''
+      }`}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('customerId', customer.id);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      onClick={() => onClick && onClick(customer)}
     >
-      {/* Card Header */}
       <div className="p-3">
-        {/* Header with logo and name */}
-        <div className="flex items-center gap-3 mb-3">
-          {customer.logo_url && isValidImageUrl(customer.logo_url) ? (
-            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border border-gray-200">
-              <Image 
-                src={customer.logo_url} 
-                alt={`${customer.name} logo`}
-                width={40}
-                height={40}
-                className="object-cover w-full h-full"
-                onError={(e) => {
-                  // If image fails to load, show initials instead
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.parentElement!.innerHTML = `<div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-gray-600 font-medium">${getInitials()}</div>`;
-                }}
-              />
-            </div>
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-gray-600 font-medium">
-              {getInitials()}
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-gray-900 truncate">{customer.name}</h3>
-          </div>
-        </div>
-        
-        {/* Key metrics */}
-        <div className={`grid ${customer.potential_mrr > 0 ? 'grid-cols-2' : 'grid-cols-1'} gap-4 mb-2`}>
-          <div>
-            <p className="text-xs text-gray-500">Current MRR</p>
-            <p className="font-medium">{formatCurrency(customer.current_mrr)}</p>
-          </div>
-          {customer.potential_mrr > 0 && (
-            <div>
-              <p className="text-xs text-gray-500">Upcoming MRR</p>
-              <p className="font-medium">{formatCurrency(customer.potential_mrr)}</p>
-            </div>
-          )}
-        </div>
-        
-        {/* Footer with date and trial info */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            {trialDays !== null && (
-              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                {trialDays} days left
-              </span>
+        <div className="flex items-start gap-3">
+          {/* Customer Avatar */}
+          <div className="flex-shrink-0">
+            {isValidImageUrl(customer.logo_url) ? (
+              <div className="relative w-10 h-10 rounded-full overflow-hidden">
+                <Image 
+                  src={customer.logo_url || ''}
+                  alt={customer.name}
+                  fill
+                  className="object-cover"
+                />
+              </div>
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-medium">
+                {getInitials()}
+              </div>
             )}
-            
-            {customer.last_contact_date && (
-              <div className="flex items-center gap-1">
-                {isContactOverdue(customer.last_contact_date) ? (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                      <line x1="12" y1="9" x2="12" y2="13"></line>
-                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                    </svg>
-                    <span className="text-xs text-red-500">
-                      Last: {formatDate(customer.last_contact_date)}
-                    </span>
-                  </>
+          </div>
+          
+          {/* Customer Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-start">
+              <h3 className="font-medium text-gray-900 truncate max-w-[150px] sm:max-w-none">
+                {customer.name}
+              </h3>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded(!isExpanded);
+                }}
+                className="text-gray-400 hover:text-gray-600 ml-2"
+              >
+                {isExpanded ? (
+                  <ChevronUp size={16} />
                 ) : (
-                  <span className="text-xs text-gray-500">
+                  <ChevronDown size={16} />
+                )}
+              </button>
+            </div>
+            
+            {/* Customer Details */}
+            <div className="mt-1 text-sm text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+              {/* Current MRR */}
+              <div className="flex items-center gap-1">
+                <span className="font-medium">{formatCurrency(customer.current_mrr)}</span>
+                <span className="text-xs">MRR</span>
+              </div>
+              
+              {/* Potential MRR - Only show if greater than 0 */}
+              {customer.potential_mrr > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="font-medium">{formatCurrency(customer.potential_mrr)}</span>
+                  <span className="text-xs">Upcoming</span>
+                </div>
+              )}
+              
+              {/* Last Contact Date */}
+              {customer.last_contact_date && (
+                <div className={`flex items-center gap-1 ${
+                  isContactOverdue(customer.last_contact_date) ? 'text-red-500' : ''
+                }`}>
+                  <span className="text-xs">
+                    {isContactOverdue(customer.last_contact_date) ? '⚠️ ' : ''}
                     Last: {formatDate(customer.last_contact_date)}
                   </span>
-                )}
-              </div>
-            )}
-            
-            {customer.activity_count && (
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-500">{customer.activity_count}</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
-                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                </svg>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         
-        {/* Add expand/collapse button */}
-        <div className="flex justify-between items-center mt-2">
-          <div className="flex items-center space-x-1">
-            {incompleteTodosCount > 0 && (
-              <div className="flex items-center bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1">
-                  <path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                </svg>
-                {incompleteTodosCount} task{incompleteTodosCount !== 1 ? 's' : ''}
+        {/* Expanded Content */}
+        {isExpanded && (
+          <div className="mt-3 pt-3 border-t text-sm">
+            {/* Todos Section */}
+            {(customer.todos && customer.todos.length > 0) && (
+              <div className="mb-3">
+                <h4 className="font-medium text-gray-700 mb-1">Todos</h4>
+                <ul className="space-y-1">
+                  {customer.todos.map((todo, index) => (
+                    <li key={index} className="flex items-start gap-2">
+                      {todo.completed ? (
+                        <Check size={16} className="text-green-500 mt-0.5 flex-shrink-0" />
+                      ) : (
+                        <Square size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                      )}
+                      <span className={`${todo.completed ? 'line-through text-gray-400' : ''}`}>
+                        {todo.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
-          </div>
-          <button 
-            onClick={toggleExpanded}
-            className={`p-1 rounded-full focus:outline-none ${isExpanded ? 'bg-gray-200 text-gray-700' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-            aria-label={isExpanded ? "Collapse card" : "Expand card"}
-          >
-            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-        </div>
-      </div>
-      
-      {/* Expanded Content */}
-      {isExpanded && (
-        <div className="px-3 mt-2 pb-2 bg-gray-50 rounded-b-md border-t border-gray-100">
-          {/* Todo List */}
-          {todosArray.length > 0 ? (
-            <div className="pt-3">
-              <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                <span className="mr-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
-                    <path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                  </svg>
-                </span>
-                Tasks
-              </h4>
-              <ul className="space-y-2">
-                {todosArray.map((todo: Todo) => (
-                  <li 
-                    key={todo.id} 
-                    className={`flex items-start p-2 rounded-md ${
-                      todo.completed ? 'bg-green-50' : 'bg-white border border-gray-200'
-                    }`}
-                  >
-                    <span className={`mr-2 mt-0.5 ${todo.completed ? 'text-green-500' : 'text-gray-400'}`}>
-                      {todo.completed ? (
-                        <Check className="h-4 w-4" />
-                      ) : (
-                        <Square className="h-4 w-4" />
-                      )}
-                    </span>
-                    <span className={`text-sm ${todo.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                      {todo.text}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          
-          {/* Notes (if any) */}
-          {customer.notes && (
-            <div className={`${(customer.todos || []).length > 0 ? 'mt-3' : 'pt-3'}`}>
-              <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                <span className="mr-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500">
-                    <path d="M14 3v4a1 1 0 0 0 1 1h4"></path>
-                    <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"></path>
-                  </svg>
-                </span>
-                Notes
-              </h4>
-              <div className="bg-white p-2 rounded-md border border-gray-200">
-                <p className="text-sm text-gray-600 whitespace-pre-wrap">{customer.notes}</p>
+            
+            {/* Notes Section */}
+            {customer.notes && (
+              <div>
+                <h4 className="font-medium text-gray-700 mb-1">Notes</h4>
+                <p className="text-gray-600 whitespace-pre-line text-xs">{customer.notes}</p>
               </div>
+            )}
+            
+            {/* Contact Info */}
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {customer.contact_email && (
+                <div>
+                  <span className="text-gray-500">Email:</span> {customer.contact_email}
+                </div>
+              )}
+              {customer.contact_phone && (
+                <div>
+                  <span className="text-gray-500">Phone:</span> {customer.contact_phone}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

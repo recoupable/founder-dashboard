@@ -7,6 +7,7 @@ import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
 import { PipelineMRRProvider } from '@/components/dashboard/PipelineMRRProvider'
 import { FinancialMetricsProvider } from '@/components/dashboard/FinancialMetricsProvider'
+import { ExitValueProvider } from '@/components/dashboard/ExitValueProvider'
 
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
@@ -47,15 +48,15 @@ export default async function Dashboard() {
   const totalPayingCustomers = stripeCustomers + ENTERPRISE_CUSTOMERS_COUNT;
 
   return (
-    <main className="p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex justify-between items-center">
-          <h1 className="text-4xl font-bold tracking-tight">Dashboard</h1>
+    <main className="p-4 sm:p-8">
+      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Dashboard</h1>
           <ConnectionStatus className="w-auto" />
         </div>
         
         {/* Main Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Monthly Active Users Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -70,7 +71,7 @@ export default async function Dashboard() {
             <CardContent>
               {hasValidActiveUsers ? (
                 <>
-                  <div className="text-2xl font-bold">{activeUsers}</div>
+                  <div className="text-xl sm:text-2xl font-bold">{activeUsers}</div>
                   {hasValidLastMonthActiveUsers ? (
                     <div className="flex items-center gap-2 text-xs">
                       <div className={`flex items-center gap-1 ${activeUsersDiff >= 0 ? 'text-green-500' : 'text-red-500'}`}>
@@ -89,7 +90,7 @@ export default async function Dashboard() {
                 </>
               ) : (
                 <div className="space-y-2">
-                  <div className="text-2xl font-bold text-red-500">Error</div>
+                  <div className="text-xl sm:text-2xl font-bold text-red-500">Error</div>
                   <div className="text-xs text-red-500">Unable to fetch active users data</div>
                 </div>
               )}
@@ -105,7 +106,7 @@ export default async function Dashboard() {
               <CreditCard className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalPayingCustomers}</div>
+              <div className="text-xl sm:text-2xl font-bold">{totalPayingCustomers}</div>
               <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                 <div>
                   <div className="font-medium text-foreground">{ENTERPRISE_CUSTOMERS_COUNT}</div>
@@ -128,6 +129,11 @@ export default async function Dashboard() {
           developmentCost={financials.expenses.development}
           operationalCost={financials.expenses.operational}
         />
+        
+        {/* Exit Value Card - Shows potential exit value based on MRR */}
+        <div className="grid grid-cols-1 gap-4 sm:gap-6">
+          <ExitValueProvider />
+        </div>
         
         {/* Additional dashboard content can go here */}
       </div>
