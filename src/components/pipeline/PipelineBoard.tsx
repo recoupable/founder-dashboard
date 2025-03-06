@@ -174,7 +174,6 @@ export function PipelineBoard() {
       {/* Pipeline Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 p-4 bg-card rounded-lg shadow">
         <div className="space-y-1">
-          <h2 className="text-2xl font-bold">Sales Pipeline</h2>
           <p className="text-muted-foreground">
             {totalCustomers} {totalCustomers === 1 ? "customer" : "customers"} in pipeline
           </p>
