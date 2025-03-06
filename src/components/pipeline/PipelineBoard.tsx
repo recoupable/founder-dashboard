@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Customer, PipelineStage } from '@/lib/customerService';
 import { usePipeline } from '@/context/PipelineContext';
 import { PipelineColumn } from './PipelineColumn';
 import { CustomerFormModal } from '@/components/pipeline/CustomerFormModal';
 import { formatCurrency } from '@/lib/utils';
+import { ExitValuePopup } from './ExitValuePopup';
 
 export function PipelineBoard() {
   const { getCustomersByStage, getTotalMRR, customers, addCustomer, updateCustomer, removeCustomer } = usePipeline();
@@ -13,6 +14,70 @@ export function PipelineBoard() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(true);
   const [selectedStage, setSelectedStage] = useState<PipelineStage | null>(null);
+  const [showExitValue, setShowExitValue] = useState(false);
+  
+  // Timer ref for long press
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Clear timer on component unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+  
+  // Handle mouse down on potential MRR card
+  const handlePotentialMRRMouseDown = () => {
+    timerRef.current = setTimeout(() => {
+      setShowExitValue(true);
+    }, 5000); // 5 seconds
+  };
+  
+  // Handle mouse up on potential MRR card
+  const handlePotentialMRRMouseUp = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  
+  // Handle mouse leave on potential MRR card
+  const handlePotentialMRRMouseLeave = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  
+  // Handle click outside to close exit value popup
+  const handleDocumentClick = () => {
+    setShowExitValue(false);
+  };
+  
+  // Add event listener for document click
+  useEffect(() => {
+    document.addEventListener('click', handleDocumentClick);
+    return () => {
+      document.removeEventListener('click', handleDocumentClick);
+    };
+  }, []);
+  
+  // Handle touch start on potential MRR card
+  const handlePotentialMRRTouchStart = () => {
+    timerRef.current = setTimeout(() => {
+      setShowExitValue(true);
+    }, 5000); // 5 seconds
+  };
+  
+  // Handle touch end on potential MRR card
+  const handlePotentialMRRTouchEnd = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
   
   // Get all pipeline stages
   const pipelineStages: PipelineStage[] = [
@@ -147,7 +212,7 @@ export function PipelineBoard() {
             </div>
             <p className="text-2xl font-bold">{formatCurrency(potentialMRR)}</p>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow">
+          <div className="bg-white p-4 rounded-lg shadow relative">
             <div className="flex items-center gap-1">
               <h3 className="text-sm font-medium text-gray-500">Potential MRR</h3>
               <div className="group relative">
@@ -160,7 +225,24 @@ export function PipelineBoard() {
                 </div>
               </div>
             </div>
-            <p className="text-2xl font-bold">{formatCurrency(potentialArtistMRR)}</p>
+            <div 
+              className="cursor-pointer" 
+              onMouseDown={handlePotentialMRRMouseDown}
+              onMouseUp={handlePotentialMRRMouseUp}
+              onMouseLeave={handlePotentialMRRMouseLeave}
+              onTouchStart={handlePotentialMRRTouchStart}
+              onTouchEnd={handlePotentialMRRTouchEnd}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-2xl font-bold">{formatCurrency(potentialArtistMRR)}</p>
+              <p className="text-xs text-gray-500 mt-1">Hold for 5s to see exit value</p>
+            </div>
+            
+            {/* Exit Value Popup */}
+            <ExitValuePopup 
+              potentialMRR={potentialArtistMRR} 
+              isVisible={showExitValue} 
+            />
           </div>
         </div>
       </div>
