@@ -27,7 +27,7 @@ export function OperationalCostCard({ operationalCost }: OperationalCostCardProp
         <Settings className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold text-red-500">-{formatCurrency(operationalCost)}</div>
+        <div className="text-2xl font-bold">-{formatCurrency(operationalCost)}</div>
         <p className="text-xs text-muted-foreground">
           Monthly operational expenses
         </p>

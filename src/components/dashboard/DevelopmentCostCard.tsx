@@ -27,7 +27,7 @@ export function DevelopmentCostCard({ developmentCost }: DevelopmentCostCardProp
         <Code className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold text-red-500">-{formatCurrency(developmentCost)}</div>
+        <div className="text-2xl font-bold">-{formatCurrency(developmentCost)}</div>
         <p className="text-xs text-muted-foreground">
           Monthly development expenses
         </p>
