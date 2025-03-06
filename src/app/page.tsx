@@ -1,10 +1,11 @@
 import React from 'react'
-import { CreditCard, Users, DollarSign, CheckCircle2, XCircle, TrendingUp, TrendingDown } from 'lucide-react'
+import { CreditCard, Users, CheckCircle2, XCircle, TrendingUp, TrendingDown } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { getPayingCustomersCount } from '@/lib/stripe'
 import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
+import { PipelineMRRProvider } from '@/components/dashboard/PipelineMRRProvider'
 
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
@@ -132,21 +133,8 @@ export default async function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* MRR Card */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Monthly Recurring Revenue
-              </CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(financials.revenue.mrr)}</div>
-              <p className="text-xs text-muted-foreground">
-                Monthly recurring revenue
-              </p>
-            </CardContent>
-          </Card>
+          {/* MRR Card - Now using data from Sales Pipeline */}
+          <PipelineMRRProvider />
         </div>
 
         {/* Financial Breakdown Card */}
