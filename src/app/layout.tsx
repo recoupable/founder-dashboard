@@ -5,6 +5,7 @@ import './globals.css'
 import { AutoRefresh } from '@/components/AutoRefresh'
 import { Navigation } from '@/components/Navigation'
 import { StorageInitializer } from '@/components/StorageInitializer'
+import { PipelineProvider } from '@/context/PipelineContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -21,14 +22,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} bg-gray-50`}>
-        <div className="min-h-screen flex flex-col">
-          <Navigation />
-          <main className="flex-1">
-            {children}
-          </main>
-          <AutoRefresh interval={2 * 60 * 1000} /> {/* Refresh every 2 minutes */}
-          <StorageInitializer />
-        </div>
+        <PipelineProvider>
+          <div className="min-h-screen flex flex-col">
+            <Navigation />
+            <main className="flex-1">
+              {children}
+            </main>
+            <AutoRefresh interval={2 * 60 * 1000} /> {/* Refresh every 2 minutes */}
+            <StorageInitializer />
+          </div>
+        </PipelineProvider>
       </body>
     </html>
   )

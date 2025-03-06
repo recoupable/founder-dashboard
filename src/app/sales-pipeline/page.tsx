@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { PipelineProvider } from '@/context/PipelineContext'
 import { PipelineBoard } from '@/components/pipeline/PipelineBoard'
 import Link from 'next/link'
 
@@ -48,21 +47,19 @@ export default function SalesPipelinePage() {
   }
 
   return (
-    <PipelineProvider>
-      <div className="container mx-auto p-4">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">Sales Pipeline</h1>
-          <div className="flex gap-2">
-            <Link 
-              href="/sales-pipeline/admin" 
-              className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-            >
-              Admin
-            </Link>
-          </div>
+    <div className="container mx-auto p-4">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Sales Pipeline</h1>
+        <div className="flex gap-2">
+          <Link 
+            href="/sales-pipeline/admin" 
+            className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+          >
+            Admin
+          </Link>
         </div>
-        <PipelineBoard />
       </div>
-    </PipelineProvider>
+      <PipelineBoard />
+    </div>
   )
 } 

@@ -350,71 +350,42 @@ export async function updateCustomerStage(id: string, stage: PipelineStage): Pro
   return updateCustomer(id, { stage })
 }
 
-// Check if the customers table exists
-export async function checkCustomersTable(): Promise<boolean> {
+// Check if the customers table exists and create it if needed
+export async function ensureTableExists(): Promise<boolean> {
   try {
     console.log('Checking if table exists:', TABLE_NAME);
     
-    // First, check if we can access Supabase at all
-    const { error: healthError } = await supabase
-      .from('_supabase_maintenance')
-      .select('*')
-      .limit(1)
-      .single();
-    
-    if (healthError) {
-      // If we can't even access Supabase maintenance table, there's a connection issue
-      console.log('Supabase connection issue:', healthError);
-      
-      // Try a different approach - use the auth API which should always be available
-      const { data: authCheck } = await supabase.auth.getSession();
-      console.log('Auth API accessible:', !!authCheck);
-    }
-    
-    // Now try to query our actual table
-    console.log('Attempting to query table:', TABLE_NAME);
-    const { data, error } = await supabase
+    // Try to query the table
+    const { error } = await supabase
       .from(TABLE_NAME)
-      .select('id')
-      .limit(1);
+      .select('count', { count: 'exact', head: true });
     
+    // If there's an error with code 42P01, the table doesn't exist
     if (error) {
-      // Log the full error object for debugging
-      console.log('Table query error details:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
-        fullError: JSON.stringify(error)
-      });
+      console.error('Error checking table existence:', error);
       
-      // If the error is about the table not existing, return false
-      if (
-        error.message?.includes('does not exist') || 
-        error.code === '42P01' || 
-        error.details?.includes('does not exist')
-      ) {
-        console.log('Table does not exist (confirmed):', TABLE_NAME);
-        return false;
+      if (error.code === '42P01') { // PostgreSQL code for "table does not exist"
+        console.log('Table does not exist, attempting to create it');
+        
+        // Create the table using the SQL from databaseFunctions.ts
+        const { error: createError } = await supabase.rpc('create_sales_pipeline_tables');
+        
+        if (createError) {
+          console.error('Failed to create table:', createError);
+          return false;
+        }
+        
+        console.log('Successfully created table:', TABLE_NAME);
+        return true;
       }
       
-      // For other errors, log and throw
-      console.error('Error checking table existence:', error.message || 'Unknown error');
-      throw error;
+      return false;
     }
     
-    // If we got here, the table exists
-    console.log('Table exists (confirmed):', TABLE_NAME, 'Data:', data);
+    console.log('Table exists:', TABLE_NAME);
     return true;
-  } catch (error: unknown) {
-    // Log the full error for debugging
-    const err = error as Error & { code?: string; details?: string };
-    console.error('Exception in checkCustomersTable:', 
-      err?.message || 'Unknown error',
-      err?.code || 'No code',
-      err?.details || 'No details',
-      err
-    );
+  } catch (error) {
+    console.error('Exception checking table existence:', error);
     return false;
   }
 } 

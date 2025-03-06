@@ -2,10 +2,11 @@
 
 import { useEffect } from 'react';
 import { createCustomerLogosBucketIfNotExists, checkSupabaseConnection } from '@/lib/supabase';
+import { ensureTableExists } from '@/lib/customerService';
 
 export function StorageInitializer() {
   useEffect(() => {
-    // Initialize storage buckets
+    // Initialize storage buckets and database tables
     const initStorage = async () => {
       try {
         // Skip initialization if Supabase isn't properly configured
@@ -20,11 +21,17 @@ export function StorageInitializer() {
         const isConnected = await checkSupabaseConnection();
         
         if (!isConnected) {
-          console.warn('Skipping bucket creation - Supabase connection failed');
+          console.warn('Skipping initialization - Supabase connection failed');
           return;
         }
         
+        // Ensure the database table exists
+        const tableExists = await ensureTableExists();
+        console.log('Database table check result:', tableExists);
+        
+        // Create storage buckets
         await createCustomerLogosBucketIfNotExists();
+        console.log('Storage initialization complete');
       } catch (error) {
         console.error('Failed to initialize storage:', error);
       }

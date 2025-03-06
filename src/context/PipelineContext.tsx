@@ -158,16 +158,23 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Load customers from Supabase on initial render
   const loadCustomers = async () => {
     try {
+      console.log('Loading customers from Supabase...');
+      console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+      console.log('Environment:', process.env.NODE_ENV);
+      
       setLoading(true);
       setError(null);
       
       const data = await fetchCustomers();
+      console.log('Fetched customers:', data.length);
       
       if (data.length > 0) {
         setCustomers(data);
+        console.log('Set customers from Supabase data');
       } else {
         // If no customers in database, use initial data
         // This is useful for first-time setup
+        console.log('No customers found, initializing with default data');
         for (const customer of initialCustomers) {
           await createCustomer({
             name: customer.name,
