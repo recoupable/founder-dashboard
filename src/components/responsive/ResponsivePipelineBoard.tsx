@@ -9,7 +9,7 @@ import { formatCurrency } from '@/lib/utils';
 import { ExitValuePopup } from '../pipeline/ExitValuePopup';
 
 export function ResponsivePipelineBoard() {
-  const { getCustomersByStage, getTotalMRR, customers, addCustomer, updateCustomer, removeCustomer, moveCustomerToStage } = usePipeline();
+  const { getCustomersByStage, getTotalMRR, customers, addCustomer, updateCustomer, removeCustomer } = usePipeline();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(true);
