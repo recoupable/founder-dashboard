@@ -4,7 +4,6 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { 
   Customer, 
   PipelineStage, 
-  CustomerType,
   fetchCustomers, 
   createCustomer, 
   updateCustomer, 
@@ -27,71 +26,8 @@ function generateUUID(): string {
 const STORAGE_KEY = 'pipelineData';
 const STORAGE_VERSION = '1.0';
 
-// Mock data for initial pipeline
-const initialCustomers: Customer[] = [
-  {
-    id: generateUUID(),
-    name: "Acme Records",
-    type: "Prospect" as CustomerType,
-    stage: "Prospect" as PipelineStage,
-    current_artists: 0,
-    potential_artists: 250,
-    current_mrr: 0,
-    potential_mrr: 25000,
-    last_contact_date: "2023-05-15",
-    notes: "Initial contact made through conference"
-  },
-  {
-    id: generateUUID(),
-    name: "Indie Collective",
-    type: "Lead" as CustomerType,
-    stage: "Meeting" as PipelineStage,
-    current_artists: 0,
-    potential_artists: 75,
-    current_mrr: 0,
-    potential_mrr: 7500,
-    last_contact_date: "2023-05-20",
-    notes: "Meeting scheduled for next week"
-  },
-  {
-    id: generateUUID(),
-    name: "Global Music Group",
-    type: "Customer" as CustomerType,
-    stage: "Meeting" as PipelineStage,
-    current_artists: 0,
-    potential_artists: 500,
-    current_mrr: 0,
-    potential_mrr: 50000,
-    last_contact_date: "2023-05-10",
-    notes: "Follow-up meeting scheduled"
-  },
-  {
-    id: generateUUID(),
-    name: "Soundwave Studios",
-    type: "Partner" as CustomerType,
-    stage: "Free Trial" as PipelineStage,
-    current_artists: 15,
-    potential_artists: 30,
-    current_mrr: 0,
-    potential_mrr: 3000,
-    trial_start_date: "2023-05-01",
-    trial_end_date: "2023-05-30",
-    last_contact_date: "2023-05-18",
-    notes: "Trial going well, positive feedback"
-  },
-  {
-    id: generateUUID(),
-    name: "Harmony Productions",
-    type: "Customer" as CustomerType,
-    stage: "Paying Customer" as PipelineStage,
-    current_artists: 85,
-    potential_artists: 100,
-    current_mrr: 8500,
-    potential_mrr: 10000,
-    last_contact_date: "2023-05-05",
-    notes: "Contract signed, onboarding in progress"
-  }
-];
+// Empty initial pipeline - no preloaded cards
+const initialCustomers: Customer[] = [];
 
 interface PipelineContextType {
   customers: Customer[];
@@ -193,41 +129,10 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
         // Also save to localStorage as backup
         saveToStorage(data);
       } else {
-        // If no customers in database, use initial data
-        // This is useful for first-time setup
-        console.log('🔄 No customers found, initializing with default data');
-        
-        const createdCustomers: Customer[] = [];
-        
-        for (const customer of initialCustomers) {
-          try {
-            const newCustomer = await createCustomer({
-              name: customer.name,
-              type: customer.type,
-              stage: customer.stage,
-              current_artists: customer.current_artists,
-              potential_artists: customer.potential_artists,
-              current_mrr: customer.current_mrr,
-              potential_mrr: customer.potential_mrr,
-              last_contact_date: customer.last_contact_date,
-              notes: customer.notes,
-            });
-            
-            createdCustomers.push(newCustomer);
-            console.log(`✅ Created customer: ${customer.name}`);
-          } catch (err) {
-            console.error(`❌ Failed to create customer ${customer.name}:`, err);
-          }
-        }
-        
-        if (createdCustomers.length > 0) {
-          setCustomers(createdCustomers);
-          saveToStorage(createdCustomers);
-        } else {
-          // If we couldn't create any customers, use initial data
-          setCustomers(initialCustomers);
-          saveToStorage(initialCustomers);
-        }
+        // No customers in database and no initial data to load
+        console.log('🔄 No customers found in database');
+        setCustomers([]);
+        saveToStorage([]);
       }
     } catch (err) {
       console.error('❌ Error loading customers from Supabase:', err);
@@ -239,8 +144,8 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
         setCustomers(savedCustomers);
         console.log('✅ Loaded customers from localStorage');
       } else {
-        console.log('🔄 No saved customers found, using initial data');
-        setCustomers(initialCustomers);
+        console.log('🔄 No saved customers found, starting with empty pipeline');
+        setCustomers([]);
       }
     } finally {
       setLoading(false);
