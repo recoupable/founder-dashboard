@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useState } from "react"
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>
@@ -12,11 +11,9 @@ export function Tooltip({ children }: { children: React.ReactNode }) {
 }
 
 export function TooltipTrigger({ 
-  children, 
-  asChild = false 
+  children
 }: { 
   children: React.ReactNode
-  asChild?: boolean 
 }) {
   return <>{children}</>
 }
