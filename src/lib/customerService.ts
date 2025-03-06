@@ -353,7 +353,7 @@ export async function updateCustomerStage(id: string, stage: PipelineStage): Pro
 // Check if the customers table exists and create it if needed
 export async function ensureTableExists(): Promise<boolean> {
   try {
-    console.log('Checking if table exists:', TABLE_NAME);
+    console.log('🔄 Checking if table exists:', TABLE_NAME);
     
     // Try to query the table
     const { error } = await supabase
@@ -362,30 +362,62 @@ export async function ensureTableExists(): Promise<boolean> {
     
     // If there's an error with code 42P01, the table doesn't exist
     if (error) {
-      console.error('Error checking table existence:', error);
+      console.error('❌ Error checking table existence:', error);
       
       if (error.code === '42P01') { // PostgreSQL code for "table does not exist"
-        console.log('Table does not exist, attempting to create it');
+        console.log('🔄 Table does not exist, attempting to create it');
         
         // Create the table using the SQL from databaseFunctions.ts
         const { error: createError } = await supabase.rpc('create_sales_pipeline_tables');
         
         if (createError) {
-          console.error('Failed to create table:', createError);
-          return false;
+          console.error('❌ Failed to create table:', createError);
+          
+          // Try an alternative approach - direct SQL
+          console.log('🔄 Attempting alternative table creation method...');
+          
+          // This is a simplified version - adjust based on your actual schema
+          const { error: sqlError } = await supabase.rpc('execute_sql', { 
+            sql: `
+              CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                current_artists INTEGER NOT NULL DEFAULT 0,
+                potential_artists INTEGER NOT NULL DEFAULT 0,
+                current_mrr NUMERIC NOT NULL DEFAULT 0,
+                potential_mrr NUMERIC NOT NULL DEFAULT 0,
+                last_contact_date TEXT NOT NULL,
+                notes TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+              );
+            `
+          });
+          
+          if (sqlError) {
+            console.error('❌ Alternative table creation failed:', sqlError);
+            return false;
+          }
+          
+          console.log('✅ Table created using alternative method');
+          return true;
         }
         
-        console.log('Successfully created table:', TABLE_NAME);
+        console.log('✅ Successfully created table:', TABLE_NAME);
         return true;
       }
       
+      // Some other error occurred
       return false;
     }
     
-    console.log('Table exists:', TABLE_NAME);
+    // No error means the table exists
+    console.log('✅ Table exists:', TABLE_NAME);
     return true;
   } catch (error) {
-    console.error('Exception checking table existence:', error);
+    console.error('❌ Exception in ensureTableExists:', error);
     return false;
   }
 } 

@@ -9,8 +9,10 @@ import {
   createCustomer, 
   updateCustomer, 
   deleteCustomer, 
-  updateCustomerStage 
+  updateCustomerStage,
+  ensureTableExists
 } from '@/lib/customerService';
+import { checkSupabaseConnection } from '@/lib/supabase';
 
 // Simple function to generate UUIDs
 function generateUUID(): string {
@@ -160,49 +162,85 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Load customers from Supabase on initial render
   const loadCustomers = async () => {
     try {
-      console.log('Loading customers from Supabase...');
-      console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
-      console.log('Environment:', process.env.NODE_ENV);
+      console.log('🔄 Loading customers from Supabase...');
+      console.log('🔄 Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+      console.log('🔄 Environment:', process.env.NODE_ENV);
       
       setLoading(true);
       setError(null);
       
+      // Check Supabase connection first
+      const isConnected = await checkSupabaseConnection();
+      if (!isConnected) {
+        console.error('❌ Failed to connect to Supabase');
+        throw new Error('Failed to connect to Supabase');
+      }
+      
+      // Ensure the table exists
+      const tableExists = await ensureTableExists();
+      if (!tableExists) {
+        console.error('❌ Table does not exist and could not be created');
+        throw new Error('Table does not exist and could not be created');
+      }
+      
       const data = await fetchCustomers();
-      console.log('Fetched customers:', data.length);
+      console.log('✅ Fetched customers:', data.length);
       
       if (data.length > 0) {
         setCustomers(data);
-        console.log('Set customers from Supabase data');
+        console.log('✅ Set customers from Supabase data');
+        
+        // Also save to localStorage as backup
+        saveToStorage(data);
       } else {
         // If no customers in database, use initial data
         // This is useful for first-time setup
-        console.log('No customers found, initializing with default data');
+        console.log('🔄 No customers found, initializing with default data');
+        
+        const createdCustomers: Customer[] = [];
+        
         for (const customer of initialCustomers) {
-          await createCustomer({
-            name: customer.name,
-            type: customer.type,
-            stage: customer.stage,
-            current_artists: customer.current_artists,
-            potential_artists: customer.potential_artists,
-            current_mrr: customer.current_mrr,
-            potential_mrr: customer.potential_mrr,
-            last_contact_date: customer.last_contact_date,
-            notes: customer.notes,
-          });
+          try {
+            const newCustomer = await createCustomer({
+              name: customer.name,
+              type: customer.type,
+              stage: customer.stage,
+              current_artists: customer.current_artists,
+              potential_artists: customer.potential_artists,
+              current_mrr: customer.current_mrr,
+              potential_mrr: customer.potential_mrr,
+              last_contact_date: customer.last_contact_date,
+              notes: customer.notes,
+            });
+            
+            createdCustomers.push(newCustomer);
+            console.log(`✅ Created customer: ${customer.name}`);
+          } catch (err) {
+            console.error(`❌ Failed to create customer ${customer.name}:`, err);
+          }
         }
         
-        // Fetch again to get the IDs assigned by Supabase
-        const freshData = await fetchCustomers();
-        setCustomers(freshData);
+        if (createdCustomers.length > 0) {
+          setCustomers(createdCustomers);
+          saveToStorage(createdCustomers);
+        } else {
+          // If we couldn't create any customers, use initial data
+          setCustomers(initialCustomers);
+          saveToStorage(initialCustomers);
+        }
       }
     } catch (err) {
-      console.error('Error loading customers from Supabase:', err);
+      console.error('❌ Error loading customers from Supabase:', err);
       setError('Failed to load customers. Using local data instead.');
       
       // Fallback to localStorage if Supabase fails
       const savedCustomers = loadFromStorage();
       if (savedCustomers) {
         setCustomers(savedCustomers);
+        console.log('✅ Loaded customers from localStorage');
+      } else {
+        console.log('🔄 No saved customers found, using initial data');
+        setCustomers(initialCustomers);
       }
     } finally {
       setLoading(false);
@@ -270,14 +308,34 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Remove a customer
   const removeCustomer = async (id: string) => {
     try {
+      console.log(`🔄 Removing customer with ID: ${id}`);
+      
       await deleteCustomer(id);
-      setCustomers((prev) => prev.filter((customer) => customer.id !== id));
+      console.log(`✅ Successfully deleted customer with ID: ${id} from database`);
+      
+      setCustomers((prev) => {
+        const newCustomers = prev.filter((customer) => customer.id !== id);
+        console.log(`✅ Removed customer from state, remaining: ${newCustomers.length}`);
+        
+        // Also update localStorage
+        saveToStorage(newCustomers);
+        
+        return newCustomers;
+      });
     } catch (err) {
-      console.error('Error removing customer:', err);
+      console.error(`❌ Error removing customer with ID: ${id}:`, err);
       setError('Failed to remove customer');
       
       // Fallback: remove from local state only
-      setCustomers((prev) => prev.filter((customer) => customer.id !== id));
+      setCustomers((prev) => {
+        const newCustomers = prev.filter((customer) => customer.id !== id);
+        console.log(`⚠️ Removed customer from state only (database operation failed)`);
+        
+        // Also update localStorage
+        saveToStorage(newCustomers);
+        
+        return newCustomers;
+      });
     }
   };
 

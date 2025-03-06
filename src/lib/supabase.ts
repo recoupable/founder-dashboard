@@ -4,19 +4,38 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://your-project.supabase.co'
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'your-anon-key'
 
+// Log Supabase configuration on initialization
+console.log('🔄 Initializing Supabase client with:');
+console.log('🔄 URL:', supabaseUrl);
+console.log('🔄 Has Anon Key:', !!supabaseAnonKey);
+console.log('🔄 Environment:', process.env.NODE_ENV);
+
 // Create a single supabase client for the entire app
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    storageKey: 'founder-dashboard-auth',
   },
   global: {
     fetch: fetch,
     headers: {
       'X-Client-Info': 'ceo-dashboard'
     }
+  },
+  // Ensure we're not using local storage in different tabs
+  realtime: {
+    params: {
+      eventsPerSecond: 10
+    }
+  },
+  db: {
+    schema: 'public'
   }
 })
+
+// Log when the client is created
+console.log('✅ Supabase client initialized');
 
 // Type definitions for our database tables
 export type CustomerRow = {
@@ -185,23 +204,39 @@ async function createBucket() {
 // Function to check Supabase connection
 export async function checkSupabaseConnection(): Promise<boolean> {
   try {
-    console.log('Checking Supabase connection...');
-    console.log('Supabase URL:', supabaseUrl);
+    console.log('🔄 Checking Supabase connection...');
+    console.log('🔄 Supabase URL:', supabaseUrl);
+    console.log('🔄 Environment:', process.env.NODE_ENV);
+    console.log('🔄 Has Anon Key:', !!supabaseAnonKey);
+    
+    if (supabaseUrl === 'https://your-project.supabase.co' || !supabaseAnonKey) {
+      console.error('❌ Supabase not properly configured - missing URL or key');
+      return false;
+    }
     
     // Try to make a simple query to check connection
+    const startTime = Date.now();
     const { data, error } = await supabase
       .from('sales_pipeline_customers')
       .select('count', { count: 'exact', head: true });
     
+    const duration = Date.now() - startTime;
+    
     if (error) {
-      console.error('Supabase connection error:', error);
+      console.error('❌ Supabase connection error:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
       return false;
     }
     
-    console.log('Supabase connection successful, data:', data);
+    console.log(`✅ Supabase connection successful (${duration}ms), data:`, data);
     return true;
   } catch (error) {
-    console.error('Error checking Supabase connection:', error);
+    console.error('❌ Exception checking Supabase connection:', error);
     return false;
   }
 } 

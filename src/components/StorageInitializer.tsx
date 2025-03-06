@@ -1,45 +1,42 @@
 'use client';
 
 import { useEffect } from 'react';
-import { createCustomerLogosBucketIfNotExists, checkSupabaseConnection } from '@/lib/supabase';
+import { createCustomerLogosBucketIfNotExists } from '@/lib/supabase';
 import { ensureTableExists } from '@/lib/customerService';
+import { checkSupabaseConnection } from '@/lib/supabase';
 
 export function StorageInitializer() {
-  useEffect(() => {
-    // Initialize storage buckets and database tables
-    const initStorage = async () => {
-      try {
-        // Skip initialization if Supabase isn't properly configured
-        if (process.env.NODE_ENV === 'development' && 
-            (!process.env.NEXT_PUBLIC_SUPABASE_URL || 
-             process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://your-project.supabase.co')) {
-          console.log('Skipping storage initialization - Supabase not configured');
-          return;
-        }
-        
-        // Check Supabase connection first
-        const isConnected = await checkSupabaseConnection();
-        
-        if (!isConnected) {
-          console.warn('Skipping initialization - Supabase connection failed');
-          return;
-        }
-        
-        // Ensure the database table exists
-        const tableExists = await ensureTableExists();
-        console.log('Database table check result:', tableExists);
-        
-        // Create storage buckets
-        await createCustomerLogosBucketIfNotExists();
-        console.log('Storage initialization complete');
-      } catch (error) {
-        console.error('Failed to initialize storage:', error);
+  // Initialize storage buckets and database tables
+  const initStorage = async () => {
+    try {
+      console.log('🔄 StorageInitializer: Starting initialization...');
+      
+      // Check Supabase connection first
+      const isConnected = await checkSupabaseConnection();
+      if (!isConnected) {
+        console.error('❌ StorageInitializer: Supabase connection failed');
+        return;
       }
-    };
-    
+      console.log('✅ StorageInitializer: Supabase connection successful');
+      
+      // Create storage buckets if they don't exist
+      await createCustomerLogosBucketIfNotExists();
+      console.log('✅ StorageInitializer: Storage buckets initialized');
+      
+      // Ensure database tables exist
+      const tableExists = await ensureTableExists();
+      console.log(`${tableExists ? '✅' : '❌'} StorageInitializer: Database table check completed`);
+      
+      console.log('✅ StorageInitializer: Initialization complete');
+    } catch (err) {
+      console.error('❌ StorageInitializer: Initialization error:', err);
+    }
+  };
+
+  useEffect(() => {
     initStorage();
   }, []);
-  
-  // This component doesn't render anything
+
+  // This component doesn't render anything visible
   return null;
 } 
