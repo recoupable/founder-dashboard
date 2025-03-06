@@ -7,7 +7,6 @@ import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
 import { PipelineMRRProvider } from '@/components/dashboard/PipelineMRRProvider'
 import { FinancialMetricsProvider } from '@/components/dashboard/FinancialMetricsProvider'
-import { ExitValueProvider } from '@/components/dashboard/ExitValueProvider'
 
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
@@ -129,11 +128,6 @@ export default async function Dashboard() {
           developmentCost={financials.expenses.development}
           operationalCost={financials.expenses.operational}
         />
-        
-        {/* Exit Value Card - Shows potential exit value based on MRR */}
-        <div className="grid grid-cols-1 gap-4 sm:gap-6">
-          <ExitValueProvider />
-        </div>
         
         {/* Additional dashboard content can go here */}
       </div>
