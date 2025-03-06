@@ -318,7 +318,7 @@ export function CustomerFormModal({
                 
                 <div className="space-y-2">
                   <label htmlFor="potential_mrr" className="text-sm font-medium">
-                    Potential MRR ($)
+                    Upcoming MRR ($)
                   </label>
                   <input
                     id="potential_mrr"

@@ -275,15 +275,20 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
 
   // Calculate total MRR (current and potential)
   const getTotalMRR = () => {
-    return customers.reduce(
-      (total, customer) => {
-        return {
-          current: total.current + customer.current_mrr,
-          potential: total.potential + customer.potential_mrr,
-        };
-      },
-      { current: 0, potential: 0 }
+    const currentMRR = customers.reduce(
+      (total, customer) => total + customer.current_mrr,
+      0
     );
+    
+    // Calculate upcoming MRR as current MRR + upcoming MRR from Free Trial customers
+    const freeTrialPotentialMRR = customers
+      .filter(customer => customer.stage === 'Free Trial')
+      .reduce((total, customer) => total + customer.potential_mrr, 0);
+    
+    return {
+      current: currentMRR,
+      potential: currentMRR + freeTrialPotentialMRR, // Current MRR + upcoming from trials
+    };
   };
 
   // Export data as JSON string
