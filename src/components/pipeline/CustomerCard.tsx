@@ -148,15 +148,17 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
         </div>
         
         {/* Key metrics */}
-        <div className="grid grid-cols-2 gap-4 mb-2">
+        <div className={`grid ${customer.potential_mrr > 0 ? 'grid-cols-2' : 'grid-cols-1'} gap-4 mb-2`}>
           <div>
             <p className="text-xs text-gray-500">Current MRR</p>
             <p className="font-medium">{formatCurrency(customer.current_mrr)}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Potential MRR</p>
-            <p className="font-medium">{formatCurrency(customer.potential_mrr)}</p>
-          </div>
+          {customer.potential_mrr > 0 && (
+            <div>
+              <p className="text-xs text-gray-500">Upcoming MRR</p>
+              <p className="font-medium">{formatCurrency(customer.potential_mrr)}</p>
+            </div>
+          )}
         </div>
         
         {/* Footer with date and trial info */}

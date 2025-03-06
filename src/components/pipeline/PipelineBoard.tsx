@@ -30,8 +30,8 @@ export function PipelineBoard() {
   
   const { current: currentMRR, potential: potentialMRR } = getTotalMRR();
   
-  // Calculate Pipeline LTV (Lifetime Value)
-  const calculatePipelineLTV = () => {
+  // Calculate Potential MRR
+  const calculatePotentialMRR = () => {
     // Get all customers regardless of stage
     const allCustomers = customers;
     
@@ -48,7 +48,7 @@ export function PipelineBoard() {
     return totalPotentialArtists * artistPrice;
   };
   
-  const pipelineLTV = calculatePipelineLTV();
+  const potentialArtistMRR = calculatePotentialMRR();
   
   // Handle customer click
   const handleCustomerClick = (customerId: string) => {
@@ -149,7 +149,7 @@ export function PipelineBoard() {
           </div>
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center gap-1">
-              <h3 className="text-sm font-medium text-gray-500">Pipeline LTV</h3>
+              <h3 className="text-sm font-medium text-gray-500">Potential MRR</h3>
               <div className="group relative">
                 <button className="h-4 w-4 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs">
                   ?
@@ -160,7 +160,7 @@ export function PipelineBoard() {
                 </div>
               </div>
             </div>
-            <p className="text-2xl font-bold">{formatCurrency(pipelineLTV)}</p>
+            <p className="text-2xl font-bold">{formatCurrency(potentialArtistMRR)}</p>
           </div>
         </div>
       </div>
