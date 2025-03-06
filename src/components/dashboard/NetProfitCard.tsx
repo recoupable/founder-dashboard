@@ -36,7 +36,7 @@ export function NetProfitCard({ netProfit, isProfit }: NetProfitCardProps) {
           {isProfit ? '+' : '-'} {formatCurrency(netProfit)}
         </div>
         <p className="text-xs text-muted-foreground">
-          Monthly revenue minus expenses
+          MRR minus development and operational costs
         </p>
       </CardContent>
     </Card>

@@ -6,9 +6,7 @@ import { getPayingCustomersCount } from '@/lib/stripe'
 import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
 import { PipelineMRRProvider } from '@/components/dashboard/PipelineMRRProvider'
-import { DevelopmentCostCard } from '@/components/dashboard/DevelopmentCostCard'
-import { OperationalCostCard } from '@/components/dashboard/OperationalCostCard'
-import { NetProfitCard } from '@/components/dashboard/NetProfitCard'
+import { FinancialMetricsProvider } from '@/components/dashboard/FinancialMetricsProvider'
 
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
@@ -125,20 +123,11 @@ export default async function Dashboard() {
           <PipelineMRRProvider />
         </div>
 
-        {/* Second row of cards - Financial metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Development Costs Card */}
-          <DevelopmentCostCard developmentCost={financials.expenses.development} />
-          
-          {/* Operational Costs Card */}
-          <OperationalCostCard operationalCost={financials.expenses.operational} />
-          
-          {/* Net Profit Card */}
-          <NetProfitCard 
-            netProfit={financials.profit.amount} 
-            isProfit={financials.profit.isProfit} 
-          />
-        </div>
+        {/* Financial Metrics - Now using data from Sales Pipeline for Net Profit */}
+        <FinancialMetricsProvider 
+          developmentCost={financials.expenses.development}
+          operationalCost={financials.expenses.operational}
+        />
         
         {/* Additional dashboard content can go here */}
       </div>
