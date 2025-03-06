@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { PipelineBoard } from '@/components/pipeline/PipelineBoard'
+import { ResponsivePipelineBoard } from '@/components/responsive/ResponsivePipelineBoard'
 import Link from 'next/link'
 
 export default function SalesPipelinePage() {
@@ -16,8 +16,8 @@ export default function SalesPipelinePage() {
 
   if (isChecking) {
     return (
-      <div className="container mx-auto p-8 text-center">
-        <h1 className="text-2xl font-bold mb-4">Loading Sales Pipeline...</h1>
+      <div className="container mx-auto p-4 sm:p-8 text-center">
+        <h1 className="text-xl sm:text-2xl font-bold mb-4">Loading Sales Pipeline...</h1>
         <div className="animate-pulse flex justify-center">
           <div className="h-4 w-32 bg-gray-300 rounded"></div>
         </div>
@@ -27,9 +27,9 @@ export default function SalesPipelinePage() {
 
   if (!tableExists) {
     return (
-      <div className="container mx-auto p-8">
-        <div className="bg-white shadow-md rounded-lg p-6 text-center">
-          <h1 className="text-2xl font-bold mb-4">Sales Pipeline Setup Required</h1>
+      <div className="container mx-auto p-4 sm:p-8">
+        <div className="bg-white shadow-md rounded-lg p-4 sm:p-6 text-center">
+          <h1 className="text-xl sm:text-2xl font-bold mb-4">Sales Pipeline Setup Required</h1>
           <p className="mb-6">
             The sales pipeline database table doesn&apos;t exist yet. You need to create it before using this feature.
           </p>
@@ -47,8 +47,8 @@ export default function SalesPipelinePage() {
   }
 
   return (
-    <div className="container mx-auto p-4">
-      <PipelineBoard />
+    <div className="container mx-auto p-4 sm:p-6">
+      <ResponsivePipelineBoard />
     </div>
   )
 } 
