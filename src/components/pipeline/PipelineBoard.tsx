@@ -32,23 +32,20 @@ export function PipelineBoard() {
   
   // Calculate Pipeline LTV (Lifetime Value)
   const calculatePipelineLTV = () => {
-    // Get customers in trial and paying stages
-    const trialCustomers = getCustomersByStage('Free Trial');
-    const payingCustomers = getCustomersByStage('Paying Customer');
-    const relevantCustomers = [...trialCustomers, ...payingCustomers];
+    // Get all customers regardless of stage
+    const allCustomers = customers;
     
-    // Calculate total potential artists across these customers
-    const totalPotentialArtists = relevantCustomers.reduce(
+    // Calculate total potential artists across all customers
+    const totalPotentialArtists = allCustomers.reduce(
       (sum, customer) => sum + (customer.potential_artists || 0), 
       0
     );
     
-    // Calculate LTV assuming 80% of potential artists at top tier ($999)
-    const topTierPrice = 999; // Price for top tier subscription
-    const conversionRate = 0.8; // 80% conversion to top tier
+    // Calculate potential MRR if all potential artists were paying $99
+    const artistPrice = 99; // Price per artist
     
-    // Monthly value if 80% of potential artists were on top tier
-    return totalPotentialArtists * conversionRate * topTierPrice;
+    // Monthly value if all potential artists were paying $99
+    return totalPotentialArtists * artistPrice;
   };
   
   const pipelineLTV = calculatePipelineLTV();
@@ -118,12 +115,13 @@ export function PipelineBoard() {
           </p>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="bg-background p-3 rounded-md shadow-sm">
+        {/* Pipeline Metrics */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center gap-1">
-              <p className="text-sm text-muted-foreground">Current MRR</p>
+              <h3 className="text-sm font-medium text-gray-500">Current MRR</h3>
               <div className="group relative">
-                <button className="h-4 w-4 rounded-full bg-muted-foreground/20 text-muted-foreground flex items-center justify-center text-xs">
+                <button className="h-4 w-4 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs">
                   ?
                 </button>
                 <div className="absolute z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-300 bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-64 p-2 bg-white rounded shadow-lg text-xs text-gray-700 border">
@@ -132,39 +130,37 @@ export function PipelineBoard() {
                 </div>
               </div>
             </div>
-            <p className="text-xl font-bold">{formatCurrency(currentMRR)}</p>
+            <p className="text-2xl font-bold">{formatCurrency(currentMRR)}</p>
           </div>
-          
-          <div className="bg-background p-3 rounded-md shadow-sm">
+          <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center gap-1">
-              <p className="text-sm text-muted-foreground">Potential MRR</p>
+              <h3 className="text-sm font-medium text-gray-500">Upcoming MRR</h3>
               <div className="group relative">
-                <button className="h-4 w-4 rounded-full bg-muted-foreground/20 text-muted-foreground flex items-center justify-center text-xs">
+                <button className="h-4 w-4 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs">
                   ?
                 </button>
                 <div className="absolute z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-300 bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-64 p-2 bg-white rounded shadow-lg text-xs text-gray-700 border">
-                  Total MRR from current paying customers plus potential MRR if free trial customers convert (based only on artists in their accounts, not their full roster).
+                  Current MRR plus upcoming MRR if free trial customers convert to paying customers.
                   <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 rotate-45 w-2 h-2 bg-white border-r border-b"></div>
                 </div>
               </div>
             </div>
-            <p className="text-xl font-bold">{formatCurrency(potentialMRR)}</p>
+            <p className="text-2xl font-bold">{formatCurrency(potentialMRR)}</p>
           </div>
-          
-          <div className="bg-background p-3 rounded-md shadow-sm">
+          <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center gap-1">
-              <p className="text-sm text-muted-foreground">Pipeline LTV (Monthly)</p>
+              <h3 className="text-sm font-medium text-gray-500">Pipeline LTV</h3>
               <div className="group relative">
-                <button className="h-4 w-4 rounded-full bg-muted-foreground/20 text-muted-foreground flex items-center justify-center text-xs">
+                <button className="h-4 w-4 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs">
                   ?
                 </button>
                 <div className="absolute z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-300 bottom-full mb-2 left-1/2 transform -translate-x-1/2 w-64 p-2 bg-white rounded shadow-lg text-xs text-gray-700 border">
-                  Monthly revenue projection if 80% of artists from trial and paying customers upgrade to top tier ($999). Helps prioritize premium features.
+                  Monthly revenue projection if all potential artists across all customers were paying $99 per artist.
                   <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 rotate-45 w-2 h-2 bg-white border-r border-b"></div>
                 </div>
               </div>
             </div>
-            <p className="text-xl font-bold">{formatCurrency(pipelineLTV)}</p>
+            <p className="text-2xl font-bold">{formatCurrency(pipelineLTV)}</p>
           </div>
         </div>
       </div>
