@@ -7,6 +7,7 @@ import { getActiveUsersCount, getLastMonthActiveUsersCount } from '@/lib/privy'
 import { getMonthlyFinancials } from '@/lib/finance'
 import { PipelineMRRProvider } from '@/components/dashboard/PipelineMRRProvider'
 import { FinancialMetricsProvider } from '@/components/dashboard/FinancialMetricsProvider'
+import { MostImportantQuestionCard } from '@/components/dashboard/MostImportantQuestionCard'
 
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,9 @@ export default async function Dashboard() {
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Dashboard</h1>
           <ConnectionStatus className="w-auto" />
         </div>
+        
+        {/* Most Important Question Card */}
+        <MostImportantQuestionCard />
         
         {/* Main Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
