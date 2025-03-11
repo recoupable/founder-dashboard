@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Customer } from '@/lib/customerService'
 import Image from 'next/image'
 import { formatCurrency } from '@/lib/utils'
@@ -14,6 +14,56 @@ interface CustomerCardProps {
 
 export function CustomerCard({ customer, onClick, isSelected = false }: CustomerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const prevPositionRef = useRef<DOMRect | null>(null);
+  
+  // Store the previous position of the card for animation
+  useEffect(() => {
+    if (cardRef.current) {
+      prevPositionRef.current = cardRef.current.getBoundingClientRect();
+    }
+    
+    // Return a cleanup function that will run before the next render
+    return () => {
+      prevPositionRef.current = null;
+    };
+  });
+  
+  // Apply FLIP animation when position changes
+  useEffect(() => {
+    if (!cardRef.current || !prevPositionRef.current || isDragging) return;
+    
+    const currentPosition = cardRef.current.getBoundingClientRect();
+    const prevPosition = prevPositionRef.current;
+    
+    // Calculate the difference in position
+    const deltaY = prevPosition.top - currentPosition.top;
+    
+    // Only animate if there's a significant change in position
+    if (Math.abs(deltaY) > 5) {
+      // Set initial position
+      cardRef.current.style.transform = `translateY(${deltaY}px)`;
+      cardRef.current.style.transition = 'none';
+      
+      // Force a reflow
+      void cardRef.current.offsetHeight;
+      
+      // Start animation
+      setIsAnimating(true);
+      cardRef.current.style.transform = '';
+      cardRef.current.style.transition = 'transform 300ms ease-out';
+      
+      // Reset after animation completes
+      setTimeout(() => {
+        if (cardRef.current) {
+          cardRef.current.style.transition = '';
+          setIsAnimating(false);
+        }
+      }, 300);
+    }
+  }, [customer.id, isDragging]);
   
   // Get initials for the customer
   const getInitials = () => {
@@ -59,13 +109,40 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
   
   return (
     <div 
+      ref={cardRef}
       className={`bg-white rounded-lg shadow-sm mb-3 overflow-hidden border ${
         isSelected ? 'ring-2 ring-primary' : ''
-      }`}
+      } ${
+        isDragging ? 'opacity-50 scale-95' : 'opacity-100 scale-100'
+      } ${
+        isAnimating ? 'z-10' : 'z-0'
+      } transition-all duration-200 cursor-grab active:cursor-grabbing hover:shadow-md`}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('customerId', customer.id);
         e.dataTransfer.effectAllowed = 'move';
+        
+        // Create a ghost image for dragging
+        if (cardRef.current) {
+          const rect = cardRef.current.getBoundingClientRect();
+          const ghostElem = cardRef.current.cloneNode(true) as HTMLElement;
+          ghostElem.style.width = `${rect.width}px`;
+          ghostElem.style.opacity = '0.8';
+          ghostElem.style.position = 'absolute';
+          ghostElem.style.top = '-1000px';
+          document.body.appendChild(ghostElem);
+          e.dataTransfer.setDragImage(ghostElem, rect.width / 2, 30);
+          
+          // Remove the ghost element after a short delay
+          setTimeout(() => {
+            document.body.removeChild(ghostElem);
+          }, 100);
+        }
+        
+        setIsDragging(true);
+      }}
+      onDragEnd={() => {
+        setIsDragging(false);
       }}
       onClick={() => onClick && onClick(customer)}
     >

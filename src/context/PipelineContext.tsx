@@ -37,6 +37,7 @@ interface PipelineContextType {
   updateCustomer: (id: string, customer: Omit<Customer, 'id'>) => Promise<void>;
   removeCustomer: (id: string) => Promise<void>;
   moveCustomerToStage: (customerId: string, newStage: PipelineStage) => Promise<void>;
+  reorderCustomers: (sourceId: string, targetId: string) => Promise<void>;
   getCustomersByStage: (stage: PipelineStage) => Customer[];
   getTotalMRR: () => { current: number; potential: number };
   exportData: () => string;
@@ -268,6 +269,68 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Reorder customers within the same stage
+  const reorderCustomers = async (sourceId: string, targetId: string) => {
+    try {
+      // Find the source and target customers
+      const sourceIndex = customers.findIndex(c => c.id === sourceId);
+      const targetIndex = customers.findIndex(c => c.id === targetId);
+      
+      if (sourceIndex === -1) {
+        console.error('Source customer not found');
+        return;
+      }
+      
+      // If target is not found, it might be because we're trying to move to the end of the list
+      // In that case, we'll just append to the end
+      const sourceCustomer = customers[sourceIndex];
+      let targetCustomer = null;
+      
+      if (targetIndex !== -1) {
+        targetCustomer = customers[targetIndex];
+        
+        // Make sure they're in the same stage
+        if (sourceCustomer.stage !== targetCustomer.stage) {
+          console.error('Cannot reorder customers in different stages');
+          return;
+        }
+      }
+      
+      // Create a new array with the reordered customers
+      const newCustomers = [...customers];
+      
+      // Remove the source customer
+      newCustomers.splice(sourceIndex, 1);
+      
+      if (targetIndex === -1) {
+        // If target not found, find all customers in the same stage and append to the end
+        const sameStageCustomers = newCustomers.filter(c => c.stage === sourceCustomer.stage);
+        const lastIndex = newCustomers.indexOf(sameStageCustomers[sameStageCustomers.length - 1]);
+        newCustomers.splice(lastIndex + 1, 0, sourceCustomer);
+      } else {
+        // Find the new target index (it might have changed after removing the source)
+        const newTargetIndex = newCustomers.findIndex(c => c.id === targetId);
+        
+        // Insert the source customer at the new position
+        newCustomers.splice(newTargetIndex, 0, sourceCustomer);
+      }
+      
+      // Add a small animation delay for visual feedback
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Update the state
+      setCustomers(newCustomers);
+      
+      // No need to update the database since order isn't stored there
+      // Just save to localStorage as backup
+      saveToStorage(newCustomers);
+      
+    } catch (error) {
+      console.error('Error reordering customers:', error);
+      setError('Failed to reorder customers');
+    }
+  };
+
   // Get customers by stage
   const getCustomersByStage = (stage: PipelineStage) => {
     return customers.filter(customer => customer.stage === stage);
@@ -372,6 +435,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
         updateCustomer: updateCustomerData,
         removeCustomer,
         moveCustomerToStage,
+        reorderCustomers,
         getCustomersByStage,
         getTotalMRR,
         exportData,
