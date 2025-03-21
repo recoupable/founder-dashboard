@@ -115,14 +115,11 @@ export function PipelineBoard() {
   
   const potentialArtistMRR = calculatePotentialMRR();
   
-  // Handle customer click
-  const handleCustomerClick = (customerId: string) => {
-    const customer = customers.find(c => c.id === customerId);
-    if (customer) {
-      setSelectedCustomer(customer as Customer);
-      setIsCreating(false);
-      setIsFormOpen(true);
-    }
+  // Handle customer click to edit
+  const handleCustomerClick = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setIsCreating(false);
+    setIsFormOpen(true);
   };
   
   // Handle add new customer

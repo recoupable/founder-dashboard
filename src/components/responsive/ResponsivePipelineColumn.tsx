@@ -8,7 +8,7 @@ import { usePipeline } from '@/context/PipelineContext';
 interface ResponsivePipelineColumnProps {
   stage: PipelineStage;
   customers: Customer[];
-  onCustomerClick: (customerId: string) => void;
+  onCustomerClick: (customer: Customer) => void;
   onAddClick?: () => void;
 }
 
@@ -112,7 +112,7 @@ export function ResponsivePipelineColumn({
               <ResponsiveCustomerCard 
                 key={customer.id}
                 customer={customer}
-                onClick={() => onCustomerClick(customer.id)}
+                onClick={() => onCustomerClick(customer)}
               />
             ))}
           </div>
