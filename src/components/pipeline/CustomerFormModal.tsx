@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Customer, PipelineStage, CustomerType } from '@/lib/customerService';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { ImageUpload } from '@/components/ui/image-upload';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { TodoList } from '@/components/ui/todo-list';
 
 interface CustomerFormModalProps {
@@ -40,6 +39,19 @@ export function CustomerFormModal({
     logo_url: '',
     todos: [],
   });
+  
+  // Add state for section visibility
+  const [isTasksVisible, setIsTasksVisible] = useState(true);
+  const [isNotesVisible, setIsNotesVisible] = useState(true);
+
+  // Toggle section visibility
+  const toggleTasksVisibility = () => {
+    setIsTasksVisible(!isTasksVisible);
+  };
+  
+  const toggleNotesVisibility = () => {
+    setIsNotesVisible(!isNotesVisible);
+  };
 
   // Update form data when customer changes
   useEffect(() => {
@@ -85,22 +97,6 @@ export function CustomerFormModal({
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Handle select changes
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    
-    // If stage is changed, automatically update type to match
-    if (name === 'stage') {
-      setFormData(prev => ({ 
-        ...prev, 
-        [name]: value as PipelineStage,
-        type: value as CustomerType 
-      }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
-  };
-
   // Handle number input changes
   const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -123,23 +119,15 @@ export function CustomerFormModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[95vh] overflow-hidden flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{isCreating ? 'Create Customer' : 'Edit Customer'}</DialogTitle>
-          <DialogDescription>
-            {isCreating
-              ? 'Add a new customer to your pipeline'
-              : 'Make changes to the customer information'}
-          </DialogDescription>
         </DialogHeader>
         
         <form id="customerForm" onSubmit={handleSubmit} className="flex flex-col flex-grow">
           <div className="overflow-y-auto pr-2 flex-grow">
             <div className="grid grid-cols-1 gap-3">
-              {/* Basic Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-medium text-gray-500">Basic Information</h3>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label htmlFor="name" className="text-sm font-medium">
@@ -169,26 +157,9 @@ export function CustomerFormModal({
                     />
                   </div>
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label htmlFor="logo_url" className="text-sm font-medium">
-                      Logo
-                    </label>
-                    <ImageUpload 
-                      initialImageUrl={formData.logo_url || undefined}
-                      onImageUploaded={(url) => setFormData(prev => ({ ...prev, logo_url: url }))}
-                      debug={false}
-                      forceLocalMode={false}
-                    />
-                  </div>
-                </div>
               </div>
               
-              {/* Pipeline Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-medium text-gray-500">Pipeline Information</h3>
-                
                 {selectedStage && (
                   <div className="text-sm text-blue-600 mb-1">
                     <span className="font-medium">Stage:</span> {selectedStage} 
@@ -196,60 +167,7 @@ export function CustomerFormModal({
                   </div>
                 )}
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label htmlFor="priority" className="text-sm font-medium">
-                      Priority
-                    </label>
-                    <select
-                      id="priority"
-                      name="priority"
-                      value={formData.priority || ''}
-                      onChange={handleSelectChange}
-                      className="w-full p-2 border rounded-md"
-                    >
-                      <option value="">Select Priority</option>
-                      <option value="Low">Low</option>
-                      <option value="Medium">Medium</option>
-                      <option value="High">High</option>
-                      <option value="Urgent">Urgent</option>
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label htmlFor="probability" className="text-sm font-medium">
-                      Probability (%)
-                    </label>
-                    <input
-                      id="probability"
-                      name="probability"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={formData.probability || ''}
-                      onChange={handleNumberChange}
-                      className="w-full p-2 border rounded-md"
-                    />
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <label htmlFor="expected_close_date" className="text-sm font-medium">
-                      Expected Close Date
-                    </label>
-                    <input
-                      id="expected_close_date"
-                      name="expected_close_date"
-                      type="date"
-                      value={formData.expected_close_date || ''}
-                      onChange={handleInputChange}
-                      className="w-full p-2 border rounded-md"
-                    />
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-1 gap-3">
                   <div className="space-y-1">
                     <label htmlFor="last_contact_date" className="text-sm font-medium">
                       Last Contact Date
@@ -266,10 +184,7 @@ export function CustomerFormModal({
                 </div>
               </div>
               
-              {/* Financial Information */}
               <div className="space-y-3">
-                <h3 className="text-sm font-medium text-gray-500">Financial Information</h3>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label htmlFor="current_artists" className="text-sm font-medium">
@@ -336,37 +251,78 @@ export function CustomerFormModal({
               </div>
               
               {/* Notes */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-gray-500">Notes</h3>
-                
-                <div className="space-y-1">
-                  <label htmlFor="notes" className="text-sm font-medium">
-                    Notes
-                  </label>
-                  <textarea
-                    id="notes"
-                    name="notes"
-                    value={formData.notes || ''}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded-md h-20"
-                    placeholder="Add any notes about this customer..."
-                  />
+              <div className="space-y-3 border rounded-md p-3">
+                <div className="flex justify-between items-center cursor-pointer" onClick={toggleNotesVisibility}>
+                  <h3 className="text-sm font-medium text-gray-700">Notes</h3>
+                  <button 
+                    type="button" 
+                    className="text-gray-500 hover:text-gray-700 focus:outline-none"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleNotesVisibility();
+                    }}
+                  >
+                    {isNotesVisible ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
+                
+                {isNotesVisible && (
+                  <div className="space-y-1">
+                    <textarea
+                      id="notes"
+                      name="notes"
+                      value={formData.notes || ''}
+                      onChange={handleInputChange}
+                      className="w-full p-2 border rounded-md h-20"
+                      placeholder="Add any notes about this customer..."
+                    />
+                  </div>
+                )}
               </div>
               
               {/* Tasks */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-gray-500">Tasks</h3>
+              <div className="space-y-3 border rounded-md p-3">
+                <div className="flex justify-between items-center cursor-pointer" onClick={toggleTasksVisibility}>
+                  <h3 className="text-sm font-medium text-gray-700">Tasks</h3>
+                  <button 
+                    type="button" 
+                    className="text-gray-500 hover:text-gray-700 focus:outline-none"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleTasksVisibility();
+                    }}
+                  >
+                    {isTasksVisible ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
                 
-                <TodoList
-                  todos={formData.todos || []}
-                  onChange={(todos) => setFormData(prev => ({ ...prev, todos }))}
-                />
+                {isTasksVisible && (
+                  <TodoList
+                    todos={formData.todos || []}
+                    onChange={(todos) => setFormData(prev => ({ ...prev, todos }))}
+                  />
+                )}
               </div>
             </div>
           </div>
           
-          <DialogFooter className="mt-2">
+          <DialogFooter className="mt-2 border-t pt-2 shrink-0">
             <div className="flex justify-between w-full">
               <div>
                 {!isCreating && onDelete && customer && (
