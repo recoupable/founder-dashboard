@@ -28,9 +28,6 @@ export function OperationalCostCard({ operationalCost }: OperationalCostCardProp
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-bold">-{formatCurrency(operationalCost)}</div>
-        <p className="text-xs text-muted-foreground">
-          Monthly operational expenses
-        </p>
       </CardContent>
     </Card>
   );

@@ -35,9 +35,6 @@ export function NetProfitCard({ netProfit, isProfit }: NetProfitCardProps) {
         <div className={`text-2xl font-bold ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
           {isProfit ? '+' : '-'} {formatCurrency(netProfit)}
         </div>
-        <p className="text-xs text-muted-foreground">
-          MRR minus development and operational costs
-        </p>
       </CardContent>
     </Card>
   );
