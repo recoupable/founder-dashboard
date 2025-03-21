@@ -8,52 +8,96 @@ export function MRRMetricsCards() {
   const { getTotalMRR, customers } = usePipeline();
   const { current: currentMRR, potential: upcomingMRR } = getTotalMRR();
   const [showExitValue, setShowExitValue] = useState(false);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const [isHolding, setIsHolding] = useState(false);
   
   // Timer ref for long press
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const holdDuration = 1000; // 1 second hold time
   
-  // Clear timer on component unmount
+  // Clear timers and animations on component unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
     };
   }, []);
   
+  // Animation function to update progress
+  const updateProgress = () => {
+    if (!startTimeRef.current || !isHolding) return;
+    
+    const elapsed = Date.now() - startTimeRef.current;
+    const progress = Math.min(elapsed / holdDuration, 1);
+    setHoldProgress(progress);
+    
+    if (progress < 1) {
+      // Continue animation
+      animationRef.current = requestAnimationFrame(updateProgress);
+    } else {
+      // Show exit value when progress reaches 100%
+      setShowExitValue(true);
+    }
+  };
+  
   // Handle mouse down on potential MRR card
   const handlePotentialMRRMouseDown = () => {
-    // Clear any existing timer
+    // Clear any existing timers
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
     
-    // Set a new timer - only 1 second now
+    // Start tracking hold
+    setIsHolding(true);
+    startTimeRef.current = Date.now();
+    
+    // Start progress animation
+    animationRef.current = requestAnimationFrame(updateProgress);
+    
+    // Backup timer in case animation fails
     timerRef.current = setTimeout(() => {
       setShowExitValue(true);
-    }, 1000); // 1 second
+    }, holdDuration);
+    
+    console.log('Hold started');
   };
   
   // Handle mouse up on potential MRR card
   const handlePotentialMRRMouseUp = () => {
+    // Clear timers
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    
+    // Reset state
+    setIsHolding(false);
+    setHoldProgress(0);
+    startTimeRef.current = null;
     
     // Hide the exit value when mouse is released
     setShowExitValue(false);
+    
+    console.log('Hold ended');
   };
   
   // Handle mouse leave on potential MRR card
   const handlePotentialMRRMouseLeave = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    
-    // Hide the exit value when mouse leaves
-    setShowExitValue(false);
+    // Same behavior as mouse up
+    handlePotentialMRRMouseUp();
   };
   
   // Calculate Potential MRR
@@ -84,6 +128,12 @@ export function MRRMetricsCards() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(value);
+  };
+  
+  // Toggle exit value
+  const toggleExitValue = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering other handlers
+    setShowExitValue(!showExitValue);
   };
 
   return (
@@ -131,7 +181,7 @@ export function MRRMetricsCards() {
           </div>
         </div>
         <div 
-          className="cursor-pointer" 
+          className="cursor-pointer relative" 
           onMouseDown={handlePotentialMRRMouseDown}
           onMouseUp={handlePotentialMRRMouseUp}
           onMouseLeave={handlePotentialMRRMouseLeave}
@@ -139,14 +189,29 @@ export function MRRMetricsCards() {
           onTouchEnd={handlePotentialMRRMouseUp}
           onTouchCancel={handlePotentialMRRMouseLeave}
         >
-          <p className="text-2xl font-bold">{formatCurrency(potentialArtistMRR)}</p>
+          <div className="flex justify-between items-center">
+            <p className="text-2xl font-bold">{formatCurrency(potentialArtistMRR)}</p>
+            <button 
+              onClick={toggleExitValue}
+              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded transition-colors"
+              aria-label="Toggle exit value"
+            >
+              {showExitValue ? 'Hide Value' : 'Show Value'}
+            </button>
+          </div>
           <p className="text-xs text-gray-500 mt-1">Hold for 1s to see exit value</p>
+          
+          {/* Visual progress indicator */}
+          {isHolding && holdProgress > 0 && holdProgress < 1 && (
+            <div className="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all" style={{ width: `${holdProgress * 100}%` }}></div>
+          )}
         </div>
         
         {/* Exit Value Popup - Simplified version */}
         {showExitValue && (
           <div 
             className="absolute top-0 left-0 right-0 bottom-0 bg-white p-4 rounded-lg shadow-lg z-10 flex flex-col justify-center items-center animate-fade-in"
+            onClick={() => setShowExitValue(false)}
           >
             <h4 className="text-lg font-bold mb-2">Exit Value</h4>
             <p className="text-3xl font-bold text-green-600">
@@ -155,7 +220,7 @@ export function MRRMetricsCards() {
             <p className="text-sm text-gray-600 mt-2">
               Based on 5 years of MRR
             </p>
-            <p className="text-xs text-gray-400 mt-4">Release to dismiss</p>
+            <p className="text-xs text-gray-400 mt-4">Tap anywhere to dismiss</p>
           </div>
         )}
       </div>
