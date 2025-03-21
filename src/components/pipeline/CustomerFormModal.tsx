@@ -122,7 +122,7 @@ export function CustomerFormModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{isCreating ? 'Add New Customer' : 'Edit Customer'}</DialogTitle>
           <DialogDescription>
@@ -132,264 +132,267 @@ export function CustomerFormModal({
           </DialogDescription>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Basic Information */}
-            <div className="space-y-4 md:col-span-2">
-              <h3 className="text-sm font-medium text-gray-500">Basic Information</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="name" className="text-sm font-medium">
-                    Customer Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="name"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded-md"
-                    required
-                  />
+        <div className="overflow-y-auto pr-2 flex-grow">
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="grid grid-cols-1 gap-3">
+              {/* Basic Information */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-gray-500">Basic Information</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="name" className="text-sm font-medium">
+                      Customer Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="name"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      className="w-full p-2 border rounded-md"
+                      required
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label htmlFor="website" className="text-sm font-medium">
+                      Website
+                    </label>
+                    <input
+                      id="website"
+                      name="website"
+                      value={formData.website || ''}
+                      onChange={handleInputChange}
+                      className="w-full p-2 border rounded-md"
+                      placeholder="https://example.com"
+                    />
+                  </div>
                 </div>
                 
-                <div className="space-y-2">
-                  <label htmlFor="website" className="text-sm font-medium">
-                    Website
-                  </label>
-                  <input
-                    id="website"
-                    name="website"
-                    value={formData.website || ''}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded-md"
-                    placeholder="https://example.com"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="logo_url" className="text-sm font-medium">
+                      Logo
+                    </label>
+                    <ImageUpload 
+                      initialImageUrl={formData.logo_url || undefined}
+                      onImageUploaded={(url) => setFormData(prev => ({ ...prev, logo_url: url }))}
+                      debug={false}
+                      forceLocalMode={false}
+                    />
+                  </div>
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="logo_url" className="text-sm font-medium">
-                    Logo
-                  </label>
-                  <ImageUpload 
-                    initialImageUrl={formData.logo_url || undefined}
-                    onImageUploaded={(url) => setFormData(prev => ({ ...prev, logo_url: url }))}
-                    debug={true}
-                    forceLocalMode={false}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Pipeline Information */}
-            <div className="space-y-4 md:col-span-2">
-              <h3 className="text-sm font-medium text-gray-500">Pipeline Information</h3>
-              
-              {selectedStage && (
-                <div className="text-sm text-blue-600 mb-2">
-                  <span className="font-medium">Stage:</span> {selectedStage} 
-                  <span className="text-gray-500 ml-1">(determined by the column)</span>
-                </div>
-              )}
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="priority" className="text-sm font-medium">
-                    Priority
-                  </label>
-                  <select
-                    id="priority"
-                    name="priority"
-                    value={formData.priority || ''}
-                    onChange={handleSelectChange}
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="">Select Priority</option>
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
-                    <option value="Urgent">Urgent</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="probability" className="text-sm font-medium">
-                    Probability (%)
-                  </label>
-                  <input
-                    id="probability"
-                    name="probability"
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={formData.probability || ''}
-                    onChange={handleNumberChange}
-                    className="w-full p-2 border rounded-md"
-                  />
+              {/* Pipeline Information */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-gray-500">Pipeline Information</h3>
+                
+                {selectedStage && (
+                  <div className="text-sm text-blue-600 mb-1">
+                    <span className="font-medium">Stage:</span> {selectedStage} 
+                    <span className="text-gray-500 ml-1">(determined by the column)</span>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="priority" className="text-sm font-medium">
+                      Priority
+                    </label>
+                    <select
+                      id="priority"
+                      name="priority"
+                      value={formData.priority || ''}
+                      onChange={handleSelectChange}
+                      className="w-full p-2 border rounded-md"
+                    >
+                      <option value="">Select Priority</option>
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                      <option value="Urgent">Urgent</option>
+                    </select>
+                  </div>
                 </div>
                 
-                <div className="space-y-2">
-                  <label htmlFor="expected_close_date" className="text-sm font-medium">
-                    Expected Close Date
-                  </label>
-                  <input
-                    id="expected_close_date"
-                    name="expected_close_date"
-                    type="date"
-                    value={formData.expected_close_date || ''}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded-md"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="last_contact_date" className="text-sm font-medium">
-                    Last Contact Date
-                  </label>
-                  <input
-                    id="last_contact_date"
-                    name="last_contact_date"
-                    type="date"
-                    value={formData.last_contact_date || ''}
-                    onChange={handleInputChange}
-                    className="w-full p-2 border rounded-md"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Financial Information */}
-            <div className="space-y-4 md:col-span-2">
-              <h3 className="text-sm font-medium text-gray-500">Financial Information</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="current_artists" className="text-sm font-medium">
-                    Current Artists
-                  </label>
-                  <input
-                    id="current_artists"
-                    name="current_artists"
-                    type="number"
-                    min="0"
-                    value={formData.current_artists}
-                    onChange={handleNumberChange}
-                    className="w-full p-2 border rounded-md"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="probability" className="text-sm font-medium">
+                      Probability (%)
+                    </label>
+                    <input
+                      id="probability"
+                      name="probability"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.probability || ''}
+                      onChange={handleNumberChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label htmlFor="expected_close_date" className="text-sm font-medium">
+                      Expected Close Date
+                    </label>
+                    <input
+                      id="expected_close_date"
+                      name="expected_close_date"
+                      type="date"
+                      value={formData.expected_close_date || ''}
+                      onChange={handleInputChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
                 </div>
                 
-                <div className="space-y-2">
-                  <label htmlFor="potential_artists" className="text-sm font-medium">
-                    Potential Artists
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="last_contact_date" className="text-sm font-medium">
+                      Last Contact Date
+                    </label>
+                    <input
+                      id="last_contact_date"
+                      name="last_contact_date"
+                      type="date"
+                      value={formData.last_contact_date || ''}
+                      onChange={handleInputChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Financial Information */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-gray-500">Financial Information</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="current_artists" className="text-sm font-medium">
+                      Current Artists
+                    </label>
+                    <input
+                      id="current_artists"
+                      name="current_artists"
+                      type="number"
+                      min="0"
+                      value={formData.current_artists}
+                      onChange={handleNumberChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label htmlFor="potential_artists" className="text-sm font-medium">
+                      Potential Artists
+                    </label>
+                    <input
+                      id="potential_artists"
+                      name="potential_artists"
+                      type="number"
+                      min="0"
+                      value={formData.potential_artists}
+                      onChange={handleNumberChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="current_mrr" className="text-sm font-medium">
+                      Current MRR ($)
+                    </label>
+                    <input
+                      id="current_mrr"
+                      name="current_mrr"
+                      type="number"
+                      min="0"
+                      value={formData.current_mrr}
+                      onChange={handleNumberChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label htmlFor="potential_mrr" className="text-sm font-medium">
+                      Upcoming MRR ($)
+                    </label>
+                    <input
+                      id="potential_mrr"
+                      name="potential_mrr"
+                      type="number"
+                      min="0"
+                      value={formData.potential_mrr}
+                      onChange={handleNumberChange}
+                      className="w-full p-2 border rounded-md"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Notes */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-gray-500">Notes</h3>
+                
+                <div className="space-y-1">
+                  <label htmlFor="notes" className="text-sm font-medium">
+                    Notes
                   </label>
-                  <input
-                    id="potential_artists"
-                    name="potential_artists"
-                    type="number"
-                    min="0"
-                    value={formData.potential_artists}
-                    onChange={handleNumberChange}
-                    className="w-full p-2 border rounded-md"
+                  <textarea
+                    id="notes"
+                    name="notes"
+                    value={formData.notes || ''}
+                    onChange={handleInputChange}
+                    className="w-full p-2 border rounded-md h-20"
+                    placeholder="Add any notes about this customer..."
                   />
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label htmlFor="current_mrr" className="text-sm font-medium">
-                    Current MRR ($)
-                  </label>
-                  <input
-                    id="current_mrr"
-                    name="current_mrr"
-                    type="number"
-                    min="0"
-                    value={formData.current_mrr}
-                    onChange={handleNumberChange}
-                    className="w-full p-2 border rounded-md"
-                  />
-                </div>
+              {/* Tasks */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-gray-500">Tasks</h3>
                 
-                <div className="space-y-2">
-                  <label htmlFor="potential_mrr" className="text-sm font-medium">
-                    Upcoming MRR ($)
-                  </label>
-                  <input
-                    id="potential_mrr"
-                    name="potential_mrr"
-                    type="number"
-                    min="0"
-                    value={formData.potential_mrr}
-                    onChange={handleNumberChange}
-                    className="w-full p-2 border rounded-md"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Notes */}
-            <div className="space-y-2 md:col-span-2">
-              <label htmlFor="notes" className="text-sm font-medium">
-                Notes
-              </label>
-              <div className="mb-4">
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes
-                </label>
-                <textarea
-                  id="notes"
-                  name="notes"
-                  rows={3}
-                  value={formData.notes || ''}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <TodoList
+                  todos={formData.todos || []}
+                  onChange={(todos) => setFormData(prev => ({ ...prev, todos }))}
                 />
               </div>
-              
-              {/* Todo List */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tasks
-                </label>
-                <TodoList 
-                  todos={formData.todos || []} 
-                  onChange={(todos) => setFormData({...formData, todos})}
-                />
-              </div>
             </div>
-          </div>
-          
-          <DialogFooter>
-            {!isCreating && onDelete && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
-              >
-                Delete
-              </button>
-            )}
+          </form>
+        </div>
+        
+        <DialogFooter className="mt-3 border-t pt-3 flex justify-between items-center">
+          {!isCreating && onDelete && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+            >
+              Delete
+            </button>
+          )}
+          <div className="flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+              className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300"
             >
               Cancel
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleSubmit}
               className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
             >
-              {isCreating ? 'Create' : 'Save Changes'}
+              {isCreating ? 'Create' : 'Save'}
             </button>
-          </DialogFooter>
-        </form>
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
