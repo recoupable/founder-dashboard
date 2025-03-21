@@ -9,6 +9,7 @@ import {
   updateCustomer, 
   deleteCustomer, 
   updateCustomerStage,
+  updateCustomerOrder,
   ensureTableExists
 } from '@/lib/customerService';
 import { checkSupabaseConnection } from '@/lib/supabase';
@@ -172,9 +173,22 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   };
 
   // Add a new customer
-  const addCustomer = async (customer: Omit<Customer, 'id'>) => {
+  const addCustomer = async (customerData: Omit<Customer, 'id'>) => {
     try {
-      const newCustomer = await createCustomer(customer);
+      // Assign order_index for new customers
+      // Get the highest order_index in this stage and add 1
+      const stageCustomers = getCustomersByStage(customerData.stage);
+      const maxOrderIndex = stageCustomers.length > 0
+        ? Math.max(...stageCustomers.map(c => c.order_index || 0))
+        : -1;
+      
+      const customerWithOrder = {
+        ...customerData,
+        order_index: maxOrderIndex + 1
+      };
+      
+      // Create the customer in the database
+      const newCustomer = await createCustomer(customerWithOrder);
       setCustomers((prev) => [...prev, newCustomer]);
     } catch (err) {
       console.error('Error adding customer:', err);
@@ -182,17 +196,20 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       
       // Fallback: add to local state only
       const newCustomer: Customer = {
-        ...customer,
+        ...customerData,
         id: generateUUID(),
+        order_index: customers.filter(c => c.stage === customerData.stage).length
       };
+      
       setCustomers((prev) => [...prev, newCustomer]);
+      saveToStorage([...customers, newCustomer]);
     }
   };
 
   // Update an existing customer
-  const updateCustomerData = async (id: string, customerData: Omit<Customer, 'id'>) => {
+  const updateCustomerData = async (id: string, customer: Omit<Customer, 'id'>) => {
     try {
-      const updatedCustomer = await updateCustomer(id, customerData);
+      const updatedCustomer = await updateCustomer(id, customer);
       setCustomers((prev) =>
         prev.map((customer) =>
           customer.id === id ? updatedCustomer : customer
@@ -205,7 +222,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       // Fallback: update local state only
       setCustomers((prev) =>
         prev.map((customer) =>
-          customer.id === id ? { ...customerData, id } : customer
+          customer.id === id ? { ...customer, id } : customer
         )
       );
     }
@@ -302,28 +319,42 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       // Remove the source customer
       newCustomers.splice(sourceIndex, 1);
       
+      let insertIndex = -1;
       if (targetIndex === -1) {
         // If target not found, find all customers in the same stage and append to the end
         const sameStageCustomers = newCustomers.filter(c => c.stage === sourceCustomer.stage);
-        const lastIndex = newCustomers.indexOf(sameStageCustomers[sameStageCustomers.length - 1]);
-        newCustomers.splice(lastIndex + 1, 0, sourceCustomer);
+        const lastIndex = sameStageCustomers.length > 0 
+          ? newCustomers.indexOf(sameStageCustomers[sameStageCustomers.length - 1])
+          : -1;
+        insertIndex = lastIndex + 1;
+        newCustomers.splice(insertIndex, 0, sourceCustomer);
       } else {
         // Find the new target index (it might have changed after removing the source)
         const newTargetIndex = newCustomers.findIndex(c => c.id === targetId);
-        
-        // Insert the source customer at the new position
-        newCustomers.splice(newTargetIndex, 0, sourceCustomer);
+        insertIndex = newTargetIndex;
+        newCustomers.splice(insertIndex, 0, sourceCustomer);
       }
       
-      // Add a small animation delay for visual feedback
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Reindex all customers in this stage to ensure proper ordering
+      const stageCustomers = newCustomers
+        .filter(c => c.stage === sourceCustomer.stage)
+        .map((c, index) => ({ ...c, order_index: index }));
       
-      // Update the state
-      setCustomers(newCustomers);
+      // Update the state immediately for UI responsiveness
+      setCustomers(newCustomers.map(c => 
+        stageCustomers.find(sc => sc.id === c.id) || c
+      ));
       
-      // No need to update the database since order isn't stored there
-      // Just save to localStorage as backup
+      // Save to localStorage as backup
       saveToStorage(newCustomers);
+      
+      // Persist orders to the database
+      const updatePromises = stageCustomers.map(c => 
+        updateCustomerOrder(c.id, c.order_index)
+      );
+      
+      // Wait for all updates to complete
+      await Promise.all(updatePromises);
       
     } catch (error) {
       console.error('Error reordering customers:', error);
@@ -331,9 +362,22 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Get customers by stage
+  // Get customers by stage with proper ordering
   const getCustomersByStage = (stage: PipelineStage) => {
-    return customers.filter(customer => customer.stage === stage);
+    // Sort customers by order_index if available, otherwise by id
+    return customers
+      .filter(customer => customer.stage === stage)
+      .sort((a, b) => {
+        // If both have order_index, sort by that
+        if (a.order_index !== undefined && b.order_index !== undefined) {
+          return a.order_index - b.order_index;
+        }
+        // If only one has order_index, prioritize the one with order_index
+        if (a.order_index !== undefined) return -1;
+        if (b.order_index !== undefined) return 1;
+        // Otherwise sort by id as fallback
+        return a.id.localeCompare(b.id);
+      });
   };
 
   // Calculate total MRR (current and potential)

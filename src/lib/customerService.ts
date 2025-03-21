@@ -40,6 +40,7 @@ export interface Customer {
   assigned_to?: string
   priority?: PriorityLevel
   probability?: number
+  order_index?: number
   
   // Financial metrics
   current_artists: number
@@ -115,6 +116,7 @@ interface CustomerRow {
   assigned_to?: string
   priority?: PriorityLevel
   probability?: number
+  order_index?: number
   
   // Financial metrics
   current_artists: number
@@ -350,6 +352,33 @@ export async function updateCustomerStage(id: string, stage: PipelineStage): Pro
   return updateCustomer(id, { stage })
 }
 
+// Update customer order (for drag and drop persistence)
+export async function updateCustomerOrder(id: string, order_index: number): Promise<Customer> {
+  try {
+    console.log(`Updating customer ${id} order to ${order_index}`);
+    
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .update({ order_index })
+      .eq('id', id)
+      .select()
+
+    if (error) {
+      console.error('Error updating customer order:', error)
+      throw error
+    }
+
+    if (!data || data.length === 0) {
+      throw new Error('No data returned after updating customer order')
+    }
+
+    return rowToCustomer(data[0] as CustomerRow)
+  } catch (error) {
+    console.error('Error in updateCustomerOrder:', error)
+    throw error
+  }
+}
+
 // Check if the customers table exists and create it if needed
 export async function ensureTableExists(): Promise<boolean> {
   try {
@@ -390,6 +419,7 @@ export async function ensureTableExists(): Promise<boolean> {
                 potential_mrr NUMERIC NOT NULL DEFAULT 0,
                 last_contact_date TEXT NOT NULL,
                 notes TEXT,
+                order_index INTEGER DEFAULT 0,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
               );
@@ -400,24 +430,29 @@ export async function ensureTableExists(): Promise<boolean> {
             console.error('❌ Alternative table creation failed:', sqlError);
             return false;
           }
-          
-          console.log('✅ Table created using alternative method');
-          return true;
         }
-        
-        console.log('✅ Successfully created table:', TABLE_NAME);
-        return true;
+      } else {
+        console.error('❌ Unknown error checking table:', error);
+        return false;
       }
+    } else {
+      // Table exists, check if order_index column exists
+      // We'll attempt to add the column anyway - if it exists, the IF NOT EXISTS will prevent errors
+      const { error: alterError } = await supabase.rpc('execute_sql', { 
+        sql: `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;`
+      });
       
-      // Some other error occurred
-      return false;
+      if (alterError) {
+        console.error('❌ Failed to add order_index column:', alterError);
+      } else {
+        console.log('✅ Ensured order_index column exists');
+      }
     }
     
-    // No error means the table exists
-    console.log('✅ Table exists:', TABLE_NAME);
+    console.log('✅ Table verified/created successfully');
     return true;
   } catch (error) {
-    console.error('❌ Exception in ensureTableExists:', error);
+    console.error('❌ Unexpected error in ensureTableExists:', error);
     return false;
   }
 } 
