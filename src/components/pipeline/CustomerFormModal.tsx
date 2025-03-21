@@ -110,30 +110,31 @@ export function CustomerFormModal({
   // Handle form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("Form submitted", formData);
     onSave(formData);
   };
 
-  // Handle customer deletion
+  // Handle delete confirmation
   const handleDelete = () => {
-    if (customer && onDelete) {
+    if (onDelete && customer && customer.id) {
       onDelete(customer.id);
     }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>{isCreating ? 'Add New Customer' : 'Edit Customer'}</DialogTitle>
+          <DialogTitle>{isCreating ? 'Create Customer' : 'Edit Customer'}</DialogTitle>
           <DialogDescription>
-            {isCreating 
-              ? 'Add a new customer to your sales pipeline.' 
-              : 'Update the customer information.'}
+            {isCreating
+              ? 'Add a new customer to your pipeline'
+              : 'Make changes to the customer information'}
           </DialogDescription>
         </DialogHeader>
         
-        <div className="overflow-y-auto pr-2 flex-grow">
-          <form onSubmit={handleSubmit} className="space-y-3">
+        <form id="customerForm" onSubmit={handleSubmit} className="flex flex-col flex-grow">
+          <div className="overflow-y-auto pr-2 flex-grow">
             <div className="grid grid-cols-1 gap-3">
               {/* Basic Information */}
               <div className="space-y-3">
@@ -363,36 +364,39 @@ export function CustomerFormModal({
                 />
               </div>
             </div>
-          </form>
-        </div>
-        
-        <DialogFooter className="mt-3 border-t pt-3 flex justify-between items-center">
-          {!isCreating && onDelete && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
-            >
-              Delete
-            </button>
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-            >
-              {isCreating ? 'Create' : 'Save'}
-            </button>
           </div>
-        </DialogFooter>
+          
+          <DialogFooter className="mt-2">
+            <div className="flex justify-between w-full">
+              <div>
+                {!isCreating && onDelete && customer && (
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                >
+                  {isCreating ? 'Create' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
