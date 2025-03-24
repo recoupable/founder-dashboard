@@ -147,7 +147,10 @@ export function PipelineBoard() {
       if (isCreating) {
         await addCustomer(finalData);
       } else if (selectedCustomer) {
-        await updateCustomer({ id: selectedCustomer.id, ...finalData });
+        await updateCustomer({ 
+          id: selectedCustomer.id, 
+          ...finalData 
+        });
       }
       setIsFormOpen(false);
       setSelectedStage(null);

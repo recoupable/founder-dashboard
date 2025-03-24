@@ -35,7 +35,7 @@ interface PipelineContextType {
   loading: boolean;
   error: string | null;
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<void>;
-  updateCustomer: (id: string, customer: Omit<Customer, 'id'>) => Promise<void>;
+  updateCustomer: (customerData: Partial<Customer> & { id: string }) => Promise<void>;
   removeCustomer: (id: string) => Promise<void>;
   moveCustomerToStage: (customerId: string, newStage: PipelineStage) => Promise<void>;
   reorderCustomers: (sourceId: string, targetId: string) => Promise<void>;
@@ -43,7 +43,7 @@ interface PipelineContextType {
   getTotalMRR: () => { current: number; potential: number };
   exportData: () => string;
   importData: (jsonData: string) => Promise<boolean>;
-  refreshData: () => Promise<void>;
+  refreshData?: () => Promise<void>;
 }
 
 const PipelineContext = createContext<PipelineContextType | undefined>(undefined);
@@ -284,12 +284,12 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   };
 
   // Update an existing customer
-  const updateCustomerData = async (id: string, customer: Omit<Customer, 'id'>) => {
+  const updateCustomerData = async (customerData: Partial<Customer> & { id: string }) => {
     try {
-      const updatedCustomer = await updateCustomer({ id, ...customer });
+      const updatedCustomer = await updateCustomer(customerData);
       setCustomers((prev) =>
         prev.map((customer) =>
-          customer.id === id ? updatedCustomer : customer
+          customer.id === customerData.id ? updatedCustomer : customer
         )
       );
     } catch (err) {
@@ -299,7 +299,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       // Fallback: update local state only
       setCustomers((prev) =>
         prev.map((customer) =>
-          customer.id === id ? { ...customer, id } : customer
+          customer.id === customerData.id ? { ...customer, ...customerData } : customer
         )
       );
     }
