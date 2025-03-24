@@ -12,9 +12,10 @@ export async function POST(req: NextRequest) {
     
     // Extract customer ID and data properly
     const customerId = typeof body.id === 'string' ? body.id : body.id?.id;
-    const customerData = body.data?.id ? body.data : body.id;
+    const customerData = body.data || {};
     
-    console.log('🔄 API: Fixed request parameters:');
+    console.log('🔄 API: Request parameters:');
+    console.log('🔄 API: Request body:', body);
     console.log('🔄 API: Customer ID:', customerId);
     console.log('🔄 API: Customer Data:', customerData);
     
