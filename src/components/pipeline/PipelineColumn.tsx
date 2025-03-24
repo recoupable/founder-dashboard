@@ -142,13 +142,13 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
   const getStageName = (stage: PipelineStage) => {
     switch (stage) {
       case 'Prospect':
-        return 'Leads';
+        return 'Prospect';
       case 'Meeting':
-        return 'Qualified';
+        return 'Meeting';
       case 'Free Trial':
-        return 'Proposal';
+        return 'Free Trial';
       case 'Paying Customer':
-        return 'Closed';
+        return 'Customer';
       default:
         return stage;
     }

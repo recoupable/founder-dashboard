@@ -8,7 +8,14 @@ import { CustomerFormModal } from '@/components/pipeline/CustomerFormModal';
 import { ExitValuePopup } from '../pipeline/ExitValuePopup';
 
 export function ResponsivePipelineBoard() {
-  const { getCustomersByStage, customers, addCustomer, updateCustomer, removeCustomer } = usePipeline();
+  const { 
+    getCustomersByStage, 
+    customers, 
+    addCustomer, 
+    updateCustomer, 
+    removeCustomer,
+    refreshData
+  } = usePipeline();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(true);
@@ -91,21 +98,43 @@ export function ResponsivePipelineBoard() {
   
   // Handle save customer
   const handleSaveCustomer = async (customerData: Omit<Customer, 'id'>) => {
+    console.log("handleSaveCustomer called with data:", customerData);
     try {
       // If a stage was selected, use that stage
       const finalData = selectedStage 
         ? { ...customerData, stage: selectedStage }
         : customerData;
         
+      console.log("Final data to save:", finalData);
+        
       if (isCreating) {
+        console.log("Creating new customer");
         await addCustomer(finalData);
       } else if (selectedCustomer) {
-        await updateCustomer(selectedCustomer.id, finalData);
+        console.log("Updating customer:", selectedCustomer.id);
+        await updateCustomer({ id: selectedCustomer.id, ...finalData });
       }
+      
+      // Force close the modal
+      console.log("Closing form modal");
       setIsFormOpen(false);
       setSelectedStage(null);
-    } catch (error) {
-      console.error('Error saving customer:', error);
+      
+      // Force refresh customers list
+      console.log("Refreshing data");
+      if (refreshData) {
+        await refreshData();
+      }
+      
+      // Return true to indicate success to the caller
+      return true;
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      console.error("Error saving customer:", error);
+      alert(`Error saving customer: ${errorMsg}`);
+      
+      // Return false to indicate failure to the caller
+      return false;
     }
   };
   

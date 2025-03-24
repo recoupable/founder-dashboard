@@ -2,10 +2,10 @@ import React from 'react'
 import { ConnectionStatus } from '@/components/ConnectionStatus'
 import { getMonthlyFinancials } from '@/lib/finance'
 import { FinancialMetricsProvider } from '@/components/dashboard/FinancialMetricsProvider'
-import { MostImportantQuestionCard } from '@/components/dashboard/MostImportantQuestionCard'
 import { PipelineProvider } from '@/context/PipelineContext'
 import { ResponsivePipelineBoard } from '@/components/responsive/ResponsivePipelineBoard'
 import { MRRMetricsProvider } from '@/components/dashboard/MRRMetricsProvider'
+import { RevenueDisplayProvider } from '@/context/RevenueDisplayContext'
 
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
@@ -22,17 +22,16 @@ export default async function Dashboard() {
           <ConnectionStatus className="w-auto" />
         </div>
         
-        {/* Most Important Question Card */}
-        <MostImportantQuestionCard />
-        
-        {/* MRR Metrics Cards */}
-        <MRRMetricsProvider />
-        
-        {/* Financial Metrics - Now using data from Sales Pipeline for Net Profit */}
-        <FinancialMetricsProvider 
-          developmentCost={financials.expenses.development}
-          operationalCost={financials.expenses.operational}
-        />
+        <RevenueDisplayProvider>
+          {/* MRR Metrics Cards */}
+          <MRRMetricsProvider />
+          
+          {/* Financial Metrics - Now using data from Sales Pipeline for Net Profit */}
+          <FinancialMetricsProvider 
+            developmentCost={financials.expenses.development}
+            operationalCost={financials.expenses.operational}
+          />
+        </RevenueDisplayProvider>
         
         {/* Sales Pipeline */}
         <div className="mt-8 bg-white rounded-lg shadow-sm p-4 sm:p-6 border">

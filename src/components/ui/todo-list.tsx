@@ -1,15 +1,37 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Todo } from '@/lib/customerService';
 import { Trash2, Plus, Check, Square } from 'lucide-react';
 
 interface TodoListProps {
-  todos: Todo[];
+  todos: Todo[] | string;
   onChange: (todos: Todo[]) => void;
 }
 
 export function TodoList({ todos = [], onChange }: TodoListProps) {
+  // Convert string todos to array if needed
+  const [todosArray, setTodosArray] = useState<Todo[]>([]);
+  
+  // Parse todos if they're a string
+  useEffect(() => {
+    if (!todos) {
+      setTodosArray([]);
+    } else if (typeof todos === 'string') {
+      try {
+        const parsedTodos = JSON.parse(todos);
+        setTodosArray(Array.isArray(parsedTodos) ? parsedTodos : []);
+      } catch (e) {
+        console.error('Error parsing todos string:', e);
+        setTodosArray([]);
+      }
+    } else if (Array.isArray(todos)) {
+      setTodosArray(todos);
+    } else {
+      setTodosArray([]);
+    }
+  }, [todos]);
+
   const [newTodoText, setNewTodoText] = useState('');
 
   // Generate a unique ID for a new todo
@@ -28,22 +50,26 @@ export function TodoList({ todos = [], onChange }: TodoListProps) {
       created_at: new Date().toISOString()
     };
     
-    onChange([...todos, newTodo]);
+    const updatedTodos = [...todosArray, newTodo];
+    onChange(updatedTodos);
+    setTodosArray(updatedTodos);
     setNewTodoText('');
   };
 
   // Toggle todo completion status
   const toggleTodo = (id: string) => {
-    const updatedTodos = todos.map(todo => 
+    const updatedTodos = todosArray.map(todo => 
       todo.id === id ? { ...todo, completed: !todo.completed } : todo
     );
     onChange(updatedTodos);
+    setTodosArray(updatedTodos);
   };
 
   // Delete a todo
   const deleteTodo = (id: string) => {
-    const updatedTodos = todos.filter(todo => todo.id !== id);
+    const updatedTodos = todosArray.filter(todo => todo.id !== id);
     onChange(updatedTodos);
+    setTodosArray(updatedTodos);
   };
 
   // Handle key press in the input field
@@ -74,7 +100,7 @@ export function TodoList({ todos = [], onChange }: TodoListProps) {
       </div>
       
       <ul className="space-y-2 max-h-60 overflow-y-auto">
-        {todos.map(todo => (
+        {todosArray.map(todo => (
           <li 
             key={todo.id} 
             className="flex items-center justify-between p-2 border border-gray-200 rounded-md group hover:bg-gray-50"
@@ -104,7 +130,7 @@ export function TodoList({ todos = [], onChange }: TodoListProps) {
             </button>
           </li>
         ))}
-        {todos.length === 0 && (
+        {todosArray.length === 0 && (
           <li className="text-gray-400 text-center py-2">No tasks yet</li>
         )}
       </ul>

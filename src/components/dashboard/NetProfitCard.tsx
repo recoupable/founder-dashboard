@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 interface NetProfitCardProps {
   netProfit: number;
   isProfit: boolean;
+  isAnnual: boolean;
 }
 
-export function NetProfitCard({ netProfit, isProfit }: NetProfitCardProps) {
+export function NetProfitCard({ netProfit, isProfit, isAnnual }: NetProfitCardProps) {
   // Format number as currency
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -23,7 +24,7 @@ export function NetProfitCard({ netProfit, isProfit }: NetProfitCardProps) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">
-          Net Profit
+          Net {isAnnual ? 'Yearly' : 'Monthly'} Profit
         </CardTitle>
         {isProfit ? (
           <TrendingUp className="h-4 w-4 text-green-500" />

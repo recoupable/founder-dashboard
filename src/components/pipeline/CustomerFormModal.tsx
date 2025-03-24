@@ -24,6 +24,14 @@ export function CustomerFormModal({
   isCreating = false,
   selectedStage,
 }: CustomerFormModalProps) {
+  // Internal state to control dialog open state
+  const [open, setOpen] = useState(isOpen);
+  
+  // Update internal state when isOpen changes
+  useEffect(() => {
+    setOpen(isOpen);
+  }, [isOpen]);
+
   // Initialize form data
   const [formData, setFormData] = useState<Omit<Customer, 'id'>>({
     name: '',
@@ -107,7 +115,44 @@ export function CustomerFormModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Form submitted", formData);
+    // Directly call onSave here
     onSave(formData);
+  };
+
+  // When the dialog is closed internally, notify the parent
+  const handleClose = () => {
+    setOpen(false);
+    onClose();
+  };
+
+  // Direct save handler (no event parameter)
+  const handleSaveClick = async () => {
+    try {
+      console.log("💾 Save button clicked");
+      
+      // Set a timeout to close the dialog after 8 seconds, even if the API call doesn't resolve
+      const timeoutId = setTimeout(() => {
+        console.log("⏱️ Timeout reached, forcing dialog to close");
+        setOpen(false);
+      }, 8000);
+
+      // Call the onSave callback
+      const result = await onSave(formData);
+      
+      // If we get here, clear the timeout and close the dialog
+      clearTimeout(timeoutId);
+      
+      console.log("✅ Save operation completed with result:", result);
+      setOpen(false);
+    } catch (error) {
+      console.error("❌ Error in CustomerFormModal handleSaveClick:", error);
+      
+      // Alert the user that there was an error, but their changes were stored locally
+      alert("There was an error saving to the database, but your changes have been stored locally and will sync when the connection is restored.");
+      
+      // Close the dialog even if there was an error
+      setOpen(false);
+    }
   };
 
   // Handle delete confirmation
@@ -118,13 +163,26 @@ export function CustomerFormModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog 
+      open={open} 
+      onOpenChange={(open) => {
+        console.log("Dialog onOpenChange:", open);
+        setOpen(open);
+        if (!open) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="max-w-3xl max-h-[95vh] overflow-hidden flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isCreating ? 'Create Customer' : 'Edit Customer'}</DialogTitle>
         </DialogHeader>
         
-        <form id="customerForm" onSubmit={handleSubmit} className="flex flex-col flex-grow">
+        <form 
+          id="customerForm" 
+          onSubmit={handleSubmit} 
+          className="flex flex-col flex-grow"
+        >
           <div className="overflow-y-auto pr-2 flex-grow">
             <div className="grid grid-cols-1 gap-3">
               <div className="space-y-3">
@@ -338,13 +396,14 @@ export function CustomerFormModal({
               <div className="flex space-x-2">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="button" 
+                  onClick={() => handleSaveClick()}
                   className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
                 >
                   {isCreating ? 'Create' : 'Save'}

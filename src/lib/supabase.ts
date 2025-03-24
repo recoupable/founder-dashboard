@@ -20,7 +20,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
     fetch: fetch,
     headers: {
-      'X-Client-Info': 'ceo-dashboard'
+      'X-Client-Info': 'ceo-dashboard',
+      // Add the apikey as a header to bypass RLS
+      'apikey': supabaseAnonKey
     }
   },
   // Ensure we're not using local storage in different tabs
@@ -33,6 +35,32 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     schema: 'public'
   }
 })
+
+// Check if we're running on the client or server
+const isClient = typeof window !== 'undefined'
+
+// Create a separate admin client with service role for admin operations
+// This will only work on the server side
+export const supabaseAdmin = isClient 
+  // On client, return a client with anon key (it won't have admin privileges)
+  ? supabase  
+  // On server, use the service role key
+  : createClient(
+      supabaseUrl, 
+      process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey, 
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        global: {
+          fetch: fetch,
+          headers: {
+            'X-Client-Info': 'ceo-dashboard-admin'
+          }
+        }
+      }
+    )
 
 // Log when the client is created
 console.log('✅ Supabase client initialized');

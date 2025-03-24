@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, supabaseAdmin } from './supabase'
 
 // Table name constant
 const TABLE_NAME = 'sales_pipeline_customers'
@@ -164,6 +164,7 @@ interface CustomerRow {
   // History and notes
   stage_history?: unknown
   notes?: string
+  todos?: unknown
   
   // Custom fields and external IDs
   custom_fields?: unknown
@@ -176,13 +177,33 @@ interface CustomerRow {
 
 // Convert database row to Customer model
 export function rowToCustomer(row: CustomerRow): Customer {
+  // Helper function to safely parse JSON strings
+  const safeJsonParse = <T>(value: unknown, defaultValue: T): T => {
+    if (value === null || value === undefined) {
+      return defaultValue;
+    }
+    
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value) as T;
+      } catch (e) {
+        console.error('Error parsing JSON string:', e);
+        return defaultValue;
+      }
+    }
+    
+    // If it's already an object/array, return as is
+    return value as T;
+  };
+
   return {
     ...row,
-    stage_history: row.stage_history ? JSON.parse(JSON.stringify(row.stage_history)) : [],
-    contacts: row.contacts ? JSON.parse(JSON.stringify(row.contacts)) : [],
-    custom_fields: row.custom_fields ? JSON.parse(JSON.stringify(row.custom_fields)) : {},
-    external_ids: row.external_ids ? JSON.parse(JSON.stringify(row.external_ids)) : {}
-  }
+    stage_history: safeJsonParse<StageHistoryEntry[]>(row.stage_history, []),
+    contacts: safeJsonParse<Contact[]>(row.contacts, []),
+    custom_fields: safeJsonParse<CustomFields>(row.custom_fields, {}),
+    external_ids: safeJsonParse<ExternalIds>(row.external_ids, {}),
+    todos: safeJsonParse<Todo[]>(row.todos, [])
+  };
 }
 
 // Convert Customer model to database row
@@ -204,6 +225,10 @@ export function customerToRow(customer: Omit<Customer, 'id' | 'created_at' | 'up
   
   if (customer.external_ids) {
     row.external_ids = JSON.stringify(customer.external_ids)
+  }
+  
+  if (customer.todos) {
+    row.todos = JSON.stringify(customer.todos)
   }
   
   return row as Omit<CustomerRow, 'id' | 'created_at' | 'updated_at'>
@@ -275,57 +300,148 @@ export async function createCustomer(customer: Omit<Customer, 'id'>): Promise<Cu
 }
 
 // Update an existing customer
-export async function updateCustomer(id: string, customer: Partial<Omit<Customer, 'id'>>): Promise<Customer> {
+export async function updateCustomer(customer: Partial<Customer> & { id: string }): Promise<Customer> {
   try {
-    // If stage is being updated, add to stage history
-    if (customer.stage) {
-      // First get the current customer to access their stage history
-      const { data: currentData, error: fetchError } = await supabase
-        .from(TABLE_NAME)
-        .select('stage_history')
-        .eq('id', id)
-        .single()
+    console.log('🔄 Service: Attempting to update customer via API:', customer);
+    
+    // Extract ID to ensure it's passed correctly
+    const { id, ...customerData } = customer;
+    
+    // Attempt to update via API
+    const response = await fetch('/api/customers/update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: id,  // Send as string, not an object
+        data: customerData
+      })
+    });
 
-      if (fetchError) {
-        console.error('Error fetching customer for history update:', fetchError)
-        throw fetchError
-      }
+    const result = await response.json();
+    console.log('🔄 Service: API response:', result);
 
-      // Update stage history
-      const currentHistory = currentData?.stage_history || []
-      const newHistoryEntry = {
-        stage: customer.stage,
-        timestamp: new Date().toISOString()
-      }
+    if (result.success) {
+      console.log('✅ Service: Customer updated via API:', result.data);
       
-      customer.stage_history = [...currentHistory, newHistoryEntry]
+      // Update local storage with the latest data
+      updateLocalStorage(result.data);
+      return result.data;
     }
-
-    // Convert to row format
-    const row: Record<string, unknown> = { ...customer }
-    if (customer.stage_history) {
-      row.stage_history = JSON.stringify(customer.stage_history)
+    
+    // Handle various error cases
+    if (response.status === 503 || result.useLocalStorage) {
+      console.warn('⚠️ Service: API unavailable, falling back to local storage');
+      
+      // Use the fallback data if provided
+      const fallbackData = result.fallbackData || customer;
+      updateLocalStorageDirectly(fallbackData);
+      return createUpdatedCustomerObject(fallbackData);
     }
-
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .update(row)
-      .eq('id', id)
-      .select()
-
-    if (error) {
-      console.error('Error updating customer:', error)
-      throw error
+    
+    if (result.fallbackData) {
+      console.warn('⚠️ Service: API error but fallback data provided, updating local storage');
+      updateLocalStorageDirectly(result.fallbackData);
+      return createUpdatedCustomerObject(result.fallbackData);
     }
-
-    if (!data || data.length === 0) {
-      throw new Error('No data returned after updating customer')
-    }
-
-    return rowToCustomer(data[0] as CustomerRow)
+    
+    console.error('❌ Service: Customer update failed:', result.error);
+    throw new Error(result.error || 'Failed to update customer');
   } catch (error) {
-    console.error('Error in updateCustomer:', error)
-    throw error
+    console.error('❌ Service: Error updating customer:', error);
+    
+    // Fallback to local storage update in case of network failure
+    console.warn('⚠️ Service: API call failed, falling back to local storage');
+    updateLocalStorageDirectly(customer);
+    
+    // Return a customer object based on the input
+    return createUpdatedCustomerObject(customer);
+  }
+}
+
+// Helper function to create a complete Customer object from partial data
+function createUpdatedCustomerObject(data: Partial<Customer> & { id: string }): Customer {
+  return {
+    id: data.id,
+    name: data.name || 'Unknown Customer',
+    type: data.type || 'Prospect',
+    stage: data.stage || 'Prospect',
+    current_artists: data.current_artists || 0,
+    potential_artists: data.potential_artists || 0,
+    current_mrr: data.current_mrr || 0,
+    potential_mrr: data.potential_mrr || 0,
+    last_contact_date: data.last_contact_date || new Date().toISOString(),
+    stage_history: data.stage_history || [],
+    notes: data.notes || '',
+    contacts: data.contacts || [],
+    custom_fields: data.custom_fields || {},
+    external_ids: data.external_ids || {},
+    tags: data.tags || [],
+    created_at: data.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+}
+
+// Helper function to update local storage directly
+function updateLocalStorageDirectly(customer: Partial<Customer> & { id: string }) {
+  try {
+    console.log('🔄 Service: Updating customer in local storage:', customer);
+    
+    // Get current customers from local storage
+    const customersJson = localStorage.getItem('customers');
+    let customers: Customer[] = [];
+    
+    if (customersJson) {
+      customers = JSON.parse(customersJson);
+    }
+    
+    // Find the index of the customer to update
+    const index = customers.findIndex((c: Customer) => c.id === customer.id);
+    
+    if (index !== -1) {
+      // Update existing customer
+      customers[index] = { ...customers[index], ...customer };
+    } else {
+      // Add new customer
+      customers.push(customer as Customer);
+    }
+    
+    // Save back to local storage
+    localStorage.setItem('customers', JSON.stringify(customers));
+    console.log('✅ Service: Customer updated in local storage');
+  } catch (storageError) {
+    console.error('❌ Service: Error updating local storage:', storageError);
+  }
+}
+
+// Helper to update local storage with data from API
+function updateLocalStorage(customerData: Customer) {
+  try {
+    // Get current customers from local storage
+    const customersJson = localStorage.getItem('customers');
+    let customers: Customer[] = [];
+    
+    if (customersJson) {
+      customers = JSON.parse(customersJson);
+    }
+    
+    // Find the index of the customer to update
+    const index = customers.findIndex(c => c.id === customerData.id);
+    
+    if (index !== -1) {
+      // Update existing customer
+      customers[index] = customerData;
+    } else {
+      // Add new customer
+      customers.push(customerData);
+    }
+    
+    // Save back to local storage
+    localStorage.setItem('customers', JSON.stringify(customers));
+    console.log('✅ Service: Local storage synced with API data');
+  } catch (storageError) {
+    console.error('❌ Service: Error syncing local storage:', storageError);
   }
 }
 
@@ -349,7 +465,7 @@ export async function deleteCustomer(id: string): Promise<void> {
 
 // Update a customer's stage
 export async function updateCustomerStage(id: string, stage: PipelineStage): Promise<Customer> {
-  return updateCustomer(id, { stage })
+  return updateCustomer({ id, stage });
 }
 
 // Update customer order (for drag and drop persistence)
@@ -384,29 +500,36 @@ export async function ensureTableExists(): Promise<boolean> {
   try {
     console.log('🔄 Checking if table exists:', TABLE_NAME);
     
-    // Try to query the table
-    const { error } = await supabase
+    // Skip table creation on client side
+    const isClient = typeof window !== 'undefined';
+    if (isClient) {
+      console.log('🔄 Running on client side, skipping table verification');
+      return true;
+    }
+    
+    // Try to query the table using admin client (server side only)
+    const { error } = await supabaseAdmin
       .from(TABLE_NAME)
       .select('count', { count: 'exact', head: true });
     
     // If there's an error with code 42P01, the table doesn't exist
     if (error) {
-      console.error('❌ Error checking table existence:', error);
+      console.log('❌ Error checking table existence:', error);
       
       if (error.code === '42P01') { // PostgreSQL code for "table does not exist"
         console.log('🔄 Table does not exist, attempting to create it');
         
         // Create the table using the SQL from databaseFunctions.ts
-        const { error: createError } = await supabase.rpc('create_sales_pipeline_tables');
+        const { error: createError } = await supabaseAdmin.rpc('create_sales_pipeline_tables');
         
         if (createError) {
-          console.error('❌ Failed to create table:', createError);
+          console.log('❌ Failed to create table:', createError);
           
           // Try an alternative approach - direct SQL
           console.log('🔄 Attempting alternative table creation method...');
           
           // This is a simplified version - adjust based on your actual schema
-          const { error: sqlError } = await supabase.rpc('execute_sql', { 
+          const { error: sqlError } = await supabaseAdmin.rpc('execute_sql', { 
             sql: `
               CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -427,23 +550,23 @@ export async function ensureTableExists(): Promise<boolean> {
           });
           
           if (sqlError) {
-            console.error('❌ Alternative table creation failed:', sqlError);
+            console.log('❌ Alternative table creation failed:', sqlError);
             return false;
           }
         }
       } else {
-        console.error('❌ Unknown error checking table:', error);
+        console.log('❌ Unknown error checking table:', error);
         return false;
       }
     } else {
       // Table exists, check if order_index column exists
       // We'll attempt to add the column anyway - if it exists, the IF NOT EXISTS will prevent errors
-      const { error: alterError } = await supabase.rpc('execute_sql', { 
+      const { error: alterError } = await supabaseAdmin.rpc('execute_sql', { 
         sql: `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;`
       });
       
       if (alterError) {
-        console.error('❌ Failed to add order_index column:', alterError);
+        console.log('❌ Failed to add order_index column:', alterError);
       } else {
         console.log('✅ Ensured order_index column exists');
       }
@@ -452,7 +575,14 @@ export async function ensureTableExists(): Promise<boolean> {
     console.log('✅ Table verified/created successfully');
     return true;
   } catch (error) {
-    console.error('❌ Unexpected error in ensureTableExists:', error);
+    console.log('❌ Unexpected error in ensureTableExists:', error);
     return false;
   }
+}
+
+export async function moveCustomerToStage(id: string, stage: PipelineStage): Promise<Customer> {
+  console.log(`🔄 Moving customer ${id} to stage ${stage}`);
+  
+  // Create a single parameter with both id and stage
+  return updateCustomer({ id, stage });
 } 

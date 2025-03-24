@@ -51,13 +51,90 @@ const PipelineContext = createContext<PipelineContextType | undefined>(undefined
 // Helper function to safely save data to localStorage (fallback)
 const saveToStorage = (data: Customer[]) => {
   try {
-    const storageData = {
-      version: STORAGE_VERSION,
-      timestamp: new Date().toISOString(),
-      customers: data
+    // Try to clear any existing data first to free up space
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (clearError) {
+      // Ignore errors when clearing
+      console.debug('Error clearing localStorage (continuing anyway):', clearError);
+    }
+    
+    // Define different levels of data simplification
+    const simplifyLevel1 = () => {
+      // Create a simplified version of customers for storage - Level 1 simplification
+      return data.map(customer => ({
+        id: customer.id,
+        name: customer.name,
+        type: customer.type,
+        stage: customer.stage,
+        current_artists: customer.current_artists,
+        potential_artists: customer.potential_artists,
+        current_mrr: customer.current_mrr,
+        potential_mrr: customer.potential_mrr,
+        last_contact_date: customer.last_contact_date,
+        // Omit large fields like notes, todos, and other detailed information
+      }));
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData));
-    return true;
+    
+    const simplifyLevel2 = () => {
+      // More aggressive simplification - Level 2
+      return data.map(c => ({ 
+        id: c.id, 
+        name: c.name, 
+        stage: c.stage,
+        current_mrr: c.current_mrr, 
+        potential_mrr: c.potential_mrr 
+      }));
+    };
+    
+    const simplifyLevel3 = () => {
+      // Minimal data - Level 3 (most aggressive simplification)
+      return data.map(c => ({ 
+        id: c.id, 
+        name: c.name, 
+        stage: c.stage 
+      }));
+    };
+    
+    // Try with Level 1 simplification first
+    try {
+      const storageData = {
+        version: STORAGE_VERSION,
+        timestamp: new Date().toISOString(),
+        customers: simplifyLevel1()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData));
+      return true;
+    } catch (error1) {
+      console.warn('Level 1 simplification failed, trying Level 2:', error1);
+      
+      // If that fails, try Level 2
+      try {
+        const minimalData = {
+          version: STORAGE_VERSION,
+          timestamp: new Date().toISOString(),
+          customers: simplifyLevel2()
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalData));
+        return true;
+      } catch (error2) {
+        console.warn('Level 2 simplification failed, trying Level 3:', error2);
+        
+        // If that fails too, try Level 3
+        try {
+          const superMinimalData = {
+            version: STORAGE_VERSION,
+            timestamp: new Date().toISOString(),
+            customers: simplifyLevel3()
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(superMinimalData));
+          return true;
+        } catch (error3) {
+          console.error('Could not save data even with maximum simplification:', error3);
+          return false;
+        }
+      }
+    }
   } catch (error) {
     console.error('Failed to save pipeline data to localStorage:', error);
     return false;
@@ -209,7 +286,7 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Update an existing customer
   const updateCustomerData = async (id: string, customer: Omit<Customer, 'id'>) => {
     try {
-      const updatedCustomer = await updateCustomer(id, customer);
+      const updatedCustomer = await updateCustomer({ id, ...customer });
       setCustomers((prev) =>
         prev.map((customer) =>
           customer.id === id ? updatedCustomer : customer
