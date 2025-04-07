@@ -17,8 +17,8 @@ export async function GET(
   { params }: { params: { roomId: string } }
 ) {
   try {
-    // Get roomId from params (properly handling async)
-    const { roomId } = await Promise.resolve(params);
+    // Get roomId from params (removing async handling which is causing the issue)
+    const { roomId } = params;
 
     if (!roomId) {
       return NextResponse.json({ error: 'Room ID is required' }, { status: 400 });
