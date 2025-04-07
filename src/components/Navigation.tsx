@@ -8,6 +8,7 @@ import Image from "next/image"
 const navItems = [
   { name: "Dashboard", href: "/" },
   // Sales Pipeline is now integrated into the Dashboard
+  { name: "Conversations", href: "/conversations" },
 ]
 
 export function Navigation() {
