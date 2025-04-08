@@ -348,6 +348,102 @@ export default function ConversationsPage() {
                   <div className="text-sm bg-gray-100 px-2 py-1 rounded-md">
                     {new Set(filteredConversations.map(conv => conv.account_email)).size} users
                   </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        // Show loading indicator
+                        setLoading(true);
+                        
+                        // First, create headers for our CSV
+                        const headers = [
+                          'Room ID',
+                          'Account Email',
+                          'Account Name',
+                          'Artist Name',
+                          'Topic',
+                          'Created At',
+                          'Last Message Date',
+                          'Message Count',
+                          'Conversation'
+                        ];
+                        
+                        // Fetch conversation details for all rooms
+                        const conversationDetails = await Promise.all(
+                          filteredConversations.map(async (conv) => {
+                            try {
+                              const detail = await conversationService.getConversationDetail(conv.room_id);
+                              return {
+                                ...conv,
+                                detail
+                              };
+                            } catch (err) {
+                              console.error(`Error fetching details for room ${conv.room_id}:`, err);
+                              return {
+                                ...conv,
+                                detail: null
+                              };
+                            }
+                          })
+                        );
+                        
+                        // Create CSV rows
+                        const csvRows = [
+                          headers.join(','), // Header row
+                          ...conversationDetails.map(conv => {
+                            // Process the messages if available
+                            let conversationText = '';
+                            
+                            if (conv.detail && conv.detail.messages) {
+                              conversationText = conv.detail.messages
+                                .map(msg => {
+                                  // Format as: Role (Time): Content
+                                  const timestamp = new Date(msg.created_at).toLocaleString();
+                                  return `${msg.role.toUpperCase()} (${timestamp}): ${msg.content.replace(/"/g, '""').replace(/\n/g, ' ')}`;
+                                })
+                                .join('\n');
+                            }
+                            
+                            // Format each conversation as a CSV row
+                            const values = [
+                              conv.room_id,
+                              `"${conv.account_email.replace(/"/g, '""')}"`, // Escape quotes in email addresses
+                              `"${(conv.account_name || '').replace(/"/g, '""')}"`,
+                              `"${(conv.artist_name || '').replace(/"/g, '""')}"`,
+                              `"${(conv.topic || '').replace(/"/g, '""')}"`,
+                              conv.created_at ? new Date(conv.created_at).toISOString() : '',
+                              conv.last_message_date ? new Date(conv.last_message_date).toISOString() : '',
+                              conv.messageCount || 0,
+                              `"${conversationText.replace(/"/g, '""')}"`
+                            ];
+                            return values.join(',');
+                          })
+                        ];
+
+                        const csvContent = csvRows.join('\n');
+                        
+                        // Create a blob and trigger download
+                        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `all-conversations-with-messages-${new Date().toISOString().split('T')[0]}.csv`;
+                        
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      } catch (error) {
+                        console.error("Error exporting conversations:", error);
+                        alert("There was an error exporting conversations. See console for details.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    className="text-sm bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded-md"
+                    disabled={loading}
+                  >
+                    {loading ? "Exporting..." : "Export All to CSV"}
+                  </button>
                 </div>
               </div>
               
@@ -482,6 +578,32 @@ export default function ConversationsPage() {
                       Topic: {conversationDetail.topic}
                     </p>
                   )}
+                  <div className="flex justify-end mt-2">
+                    <button
+                      onClick={() => {
+                        // Create a JSON blob
+                        const jsonData = JSON.stringify(conversationDetail, null, 2);
+                        const blob = new Blob([jsonData], { type: 'application/json' });
+                        
+                        // Create download link
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `conversation-${conversationDetail.room_id}.json`;
+                        
+                        // Trigger download
+                        document.body.appendChild(a);
+                        a.click();
+                        
+                        // Cleanup
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md"
+                    >
+                      Export JSON
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="overflow-y-auto max-h-[calc(100vh-250px)] space-y-4">
