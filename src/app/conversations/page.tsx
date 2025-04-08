@@ -15,6 +15,12 @@ interface SwitchProps {
   children?: React.ReactNode;
 }
 
+// Combined type for conversation with detail
+interface ConversationWithDetail extends ConversationListItem {
+  detail: ConversationDetail | null;
+  messageCount?: number;
+}
+
 function Switch({ checked, onChange, className, children }: SwitchProps) {
   return (
     <button
@@ -368,7 +374,7 @@ export default function ConversationsPage() {
                         ];
                         
                         // Fetch conversation details for all rooms
-                        const conversationDetails = await Promise.all(
+                        const conversationDetails: ConversationWithDetail[] = await Promise.all(
                           filteredConversations.map(async (conv) => {
                             try {
                               const detail = await conversationService.getConversationDetail(conv.room_id);
@@ -412,7 +418,8 @@ export default function ConversationsPage() {
                               `"${(conv.topic || '').replace(/"/g, '""')}"`,
                               conv.created_at ? new Date(conv.created_at).toISOString() : '',
                               conv.last_message_date ? new Date(conv.last_message_date).toISOString() : '',
-                              conv.messageCount || 0,
+                              // Safe access to messageCount with fallback
+                              conv.messageCount || conv.detail?.messages?.length || 0,
                               `"${conversationText.replace(/"/g, '""')}"`
                             ];
                             return values.join(',');
