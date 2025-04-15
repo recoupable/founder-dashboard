@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
       // Set up a timeout for the Supabase operation
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('Supabase operation timed out after 10 seconds'));
-        }, 10000); // 10 second timeout
+          reject(new Error('Supabase operation timed out after 20 seconds'));
+        }, 20000); // 20 second timeout
       });
       
       // Prepare stage history if needed

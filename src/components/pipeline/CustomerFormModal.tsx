@@ -130,20 +130,13 @@ export function CustomerFormModal({
     try {
       console.log("💾 Save button clicked");
       
-      // Set a timeout to close the dialog after 8 seconds, even if the API call doesn't resolve
-      const timeoutId = setTimeout(() => {
-        console.log("⏱️ Timeout reached, forcing dialog to close");
-        setOpen(false);
-      }, 8000);
-
       // Call the onSave callback
-      const result = await onSave(formData);
+      onSave(formData);
       
-      // If we get here, clear the timeout and close the dialog
-      clearTimeout(timeoutId);
-      
-      console.log("✅ Save operation completed with result:", result);
+      // Immediately close the dialog without waiting for the API response
+      console.log("✅ Closing dialog immediately");
       setOpen(false);
+      onClose();
     } catch (error) {
       console.error("❌ Error in CustomerFormModal handleSaveClick:", error);
       
@@ -152,6 +145,7 @@ export function CustomerFormModal({
       
       // Close the dialog even if there was an error
       setOpen(false);
+      onClose();
     }
   };
 

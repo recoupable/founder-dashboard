@@ -286,7 +286,23 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Update an existing customer
   const updateCustomerData = async (customerData: Partial<Customer> & { id: string }) => {
     try {
+      // Immediately update the UI with the new data
+      setCustomers((prev) =>
+        prev.map((customer) =>
+          customer.id === customerData.id ? { ...customer, ...customerData } : customer
+        )
+      );
+      
+      // Save to local storage right away
+      const updatedCustomers = customers.map(customer => 
+        customer.id === customerData.id ? { ...customer, ...customerData } : customer
+      );
+      saveToStorage(updatedCustomers);
+      
+      // Then attempt to update in the database
       const updatedCustomer = await updateCustomer(customerData);
+      
+      // Update again with the response from the server (which might have additional fields)
       setCustomers((prev) =>
         prev.map((customer) =>
           customer.id === customerData.id ? updatedCustomer : customer
@@ -294,14 +310,9 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
       );
     } catch (err) {
       console.error('Error updating customer:', err);
-      setError('Failed to update customer');
+      setError('Failed to update customer in database, but local changes were saved');
       
-      // Fallback: update local state only
-      setCustomers((prev) =>
-        prev.map((customer) =>
-          customer.id === customerData.id ? { ...customer, ...customerData } : customer
-        )
-      );
+      // No need to update local state again since we already did it at the beginning
     }
   };
 

@@ -85,28 +85,6 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
     }
   };
   
-  // Format date to be more readable
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
-  };
-  
-  // Check if last contact was more than two weeks ago
-  const isContactOverdue = (dateString: string) => {
-    if (!dateString) return false;
-    
-    // Parse the date string
-    const lastContact = new Date(dateString);
-    
-    // Calculate date from two weeks ago
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    
-    // Return true if last contact is before two weeks ago (overdue)
-    return lastContact < twoWeeksAgo;
-  };
-  
   return (
     <div 
       ref={cardRef}
@@ -200,18 +178,6 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
                 <div className="flex items-center gap-1">
                   <span className="font-medium">{formatCurrency(customer.potential_mrr)}</span>
                   <span className="text-xs">Upcoming</span>
-                </div>
-              )}
-              
-              {/* Last Contact Date */}
-              {customer.last_contact_date && (
-                <div className={`flex items-center gap-1 ${
-                  isContactOverdue(customer.last_contact_date) ? 'text-red-500' : ''
-                }`}>
-                  <span className="text-xs">
-                    {isContactOverdue(customer.last_contact_date) ? '⚠️ ' : ''}
-                    Last: {formatDate(customer.last_contact_date)}
-                  </span>
                 </div>
               )}
             </div>
