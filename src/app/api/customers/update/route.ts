@@ -38,61 +38,157 @@ export async function POST(req: NextRequest) {
         }, 20000); // 20 second timeout
       });
       
-      // Prepare stage history if needed
+      // Prepare stage history if needed - now checking if the column exists
       if (customerData.stage) {
         try {
-          // First get the current customer to access their stage history
-          const fetchHistoryPromise = supabaseAdmin
-            .from(TABLE_NAME)
-            .select('stage_history')
-            .eq('id', customerId)
-            .single();
-            
-          // Apply timeout to the history fetch
-          const { data: currentData, error: fetchError } = await Promise.race([
-            fetchHistoryPromise,
-            timeoutPromise
-          ]);
-    
-          if (fetchError) {
-            console.error('❌ API: Error fetching customer for history update:', fetchError);
-            // Don't throw, continue with the update without stage history
-          } else if (currentData) {
-            // Update stage history
-            const currentHistory = currentData?.stage_history || [];
-            const newHistoryEntry = {
-              stage: customerData.stage,
-              timestamp: new Date().toISOString()
-            };
-            
-            customerData.stage_history = [...currentHistory, newHistoryEntry];
+          // First check if the stage_history column exists
+          const { data: columnInfo, error: columnError } = await supabaseAdmin
+            .from('information_schema.columns')
+            .select('column_name')
+            .eq('table_name', TABLE_NAME)
+            .eq('column_name', 'stage_history');
+          
+          // If the column doesn't exist or there was an error checking, skip history tracking
+          if (columnError || !columnInfo || columnInfo.length === 0) {
+            console.log('📝 API: stage_history column not found, skipping history tracking');
+            // Remove stage_history from data if it exists to avoid errors
+            delete customerData.stage_history;
+          } else {
+            // Column exists, proceed with history tracking
+            try {
+              // First get the current customer to access their stage history
+              const fetchHistoryPromise = supabaseAdmin
+                .from(TABLE_NAME)
+                .select('stage_history')
+                .eq('id', customerId)
+                .single();
+                
+              // Apply timeout to the history fetch
+              const { data: currentData, error: fetchError } = await Promise.race([
+                fetchHistoryPromise,
+                timeoutPromise
+              ]);
+        
+              if (fetchError) {
+                console.error('❌ API: Error fetching customer for history update:', fetchError);
+                // Don't throw, continue with the update without stage history
+                delete customerData.stage_history;
+              } else if (currentData) {
+                // Update stage history
+                // Parse the stage_history properly to prevent nested stringification
+                let currentHistory = [];
+                try {
+                  // If it's already a string, parse it
+                  if (typeof currentData.stage_history === 'string') {
+                    currentHistory = JSON.parse(currentData.stage_history);
+                  } 
+                  // If it's already an array, use it directly
+                  else if (Array.isArray(currentData.stage_history)) {
+                    currentHistory = currentData.stage_history;
+                  }
+                  // Otherwise, start with an empty array
+                  else {
+                    currentHistory = [];
+                  }
+                } catch (parseError) {
+                  console.error('❌ API: Error parsing stage history, resetting:', parseError);
+                  currentHistory = []; // Reset history if corrupted
+                }
+                
+                const newHistoryEntry = {
+                  stage: customerData.stage,
+                  timestamp: new Date().toISOString()
+                };
+                
+                customerData.stage_history = [...currentHistory, newHistoryEntry];
+              }
+            } catch (historyError) {
+              console.error('❌ API: Error updating stage history:', historyError);
+              // Continue with the update even if stage history fails
+              delete customerData.stage_history;
+            }
           }
-        } catch (historyError) {
-          console.error('❌ API: Error updating stage history:', historyError);
-          // Continue with the update even if stage history fails
+        } catch (schemaError) {
+          console.error('❌ API: Error checking for stage_history column:', schemaError);
+          // Continue with the update without stage history
+          delete customerData.stage_history;
         }
       }
 
       // Create a clean update object without the ID field
       const updateData = { ...customerData };
-      delete updateData.id;  // Remove the ID field to avoid sending it in the update
+      // Use object destructuring to extract and ignore the ID field
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _unusedId, ...cleanUpdateData } = updateData;
       
-      // Convert JSON fields to strings
-      const row: Record<string, unknown> = { ...updateData };
+      // Safe JSON stringification to prevent circular references
+      const safeStringify = (obj: unknown): string => {
+        try {
+          // First check for circular references by attempting a basic stringify
+          JSON.stringify(obj);
+          // If that works, do the actual pretty stringify
+          return JSON.stringify(obj);
+        } catch (error) {
+          console.error('❌ API: Error stringifying object, likely circular reference:', error);
+          // For objects that can't be stringified, attempt to create a simplified version
+          if (Array.isArray(obj)) {
+            return JSON.stringify(obj.map(item => 
+              typeof item === 'object' && item !== null 
+                ? { id: (item as Record<string, unknown>).id || 'unknown', simplified: true } 
+                : item
+            ));
+          }
+          return JSON.stringify({ error: 'Unable to stringify', simplified: true });
+        }
+      };
+      
+      // Convert JSON fields to strings and fix date fields
+      const row: Record<string, unknown> = { ...cleanUpdateData };
+      
+      // Fix date fields - convert empty strings to null
+      const dateFields = [
+        'trial_start_date', 
+        'trial_end_date', 
+        'conversion_target_date',
+        'expected_close_date',
+        'next_activity_date'
+      ];
+      
+      // Process all date fields - using for...of instead of forEach
+      for (const field of dateFields) {
+        if (field in row && (row[field] === '' || row[field] === undefined)) {
+          row[field] = null;
+        }
+      }
+      
+      // Handle JSON fields
       if (customerData.stage_history) {
-        row.stage_history = JSON.stringify(customerData.stage_history);
+        // Make sure we're not double-stringifying a string
+        if (typeof customerData.stage_history === 'string') {
+          row.stage_history = customerData.stage_history;
+        } else {
+          row.stage_history = safeStringify(customerData.stage_history);
+        }
       }
       if (customerData.contacts) {
-        row.contacts = JSON.stringify(customerData.contacts);
+        row.contacts = typeof customerData.contacts === 'string' 
+          ? customerData.contacts 
+          : safeStringify(customerData.contacts);
       }
       if (customerData.custom_fields) {
-        row.custom_fields = JSON.stringify(customerData.custom_fields);
+        row.custom_fields = typeof customerData.custom_fields === 'string'
+          ? customerData.custom_fields
+          : safeStringify(customerData.custom_fields);
       }
       if (customerData.external_ids) {
-        row.external_ids = JSON.stringify(customerData.external_ids);
+        row.external_ids = typeof customerData.external_ids === 'string'
+          ? customerData.external_ids
+          : safeStringify(customerData.external_ids);
       }
       if (customerData.todos) {
-        row.todos = JSON.stringify(customerData.todos);
+        row.todos = typeof customerData.todos === 'string'
+          ? customerData.todos
+          : safeStringify(customerData.todos);
       }
       
       console.log('🔄 API: Sending update to Supabase:', row);

@@ -9,6 +9,7 @@ const navItems = [
   { name: "Dashboard", href: "/" },
   // Sales Pipeline is now integrated into the Dashboard
   { name: "Conversations", href: "/conversations" },
+  { name: "Utilities", href: "/api/pipeline-utilities" },
 ]
 
 export function Navigation() {
