@@ -55,26 +55,26 @@ export async function POST(req: NextRequest) {
             delete customerData.stage_history;
           } else {
             // Column exists, proceed with history tracking
-            try {
-              // First get the current customer to access their stage history
-              const fetchHistoryPromise = supabaseAdmin
-                .from(TABLE_NAME)
-                .select('stage_history')
-                .eq('id', customerId)
-                .single();
-                
-              // Apply timeout to the history fetch
-              const { data: currentData, error: fetchError } = await Promise.race([
-                fetchHistoryPromise,
-                timeoutPromise
-              ]);
-        
-              if (fetchError) {
-                console.error('❌ API: Error fetching customer for history update:', fetchError);
-                // Don't throw, continue with the update without stage history
+        try {
+          // First get the current customer to access their stage history
+          const fetchHistoryPromise = supabaseAdmin
+            .from(TABLE_NAME)
+            .select('stage_history')
+            .eq('id', customerId)
+            .single();
+            
+          // Apply timeout to the history fetch
+          const { data: currentData, error: fetchError } = await Promise.race([
+            fetchHistoryPromise,
+            timeoutPromise
+          ]);
+    
+          if (fetchError) {
+            console.error('❌ API: Error fetching customer for history update:', fetchError);
+            // Don't throw, continue with the update without stage history
                 delete customerData.stage_history;
-              } else if (currentData) {
-                // Update stage history
+          } else if (currentData) {
+            // Update stage history
                 // Parse the stage_history properly to prevent nested stringification
                 let currentHistory = [];
                 try {
@@ -95,16 +95,16 @@ export async function POST(req: NextRequest) {
                   currentHistory = []; // Reset history if corrupted
                 }
                 
-                const newHistoryEntry = {
-                  stage: customerData.stage,
-                  timestamp: new Date().toISOString()
-                };
-                
-                customerData.stage_history = [...currentHistory, newHistoryEntry];
-              }
-            } catch (historyError) {
-              console.error('❌ API: Error updating stage history:', historyError);
-              // Continue with the update even if stage history fails
+            const newHistoryEntry = {
+              stage: customerData.stage,
+              timestamp: new Date().toISOString()
+            };
+            
+            customerData.stage_history = [...currentHistory, newHistoryEntry];
+          }
+        } catch (historyError) {
+          console.error('❌ API: Error updating stage history:', historyError);
+          // Continue with the update even if stage history fails
               delete customerData.stage_history;
             }
           }

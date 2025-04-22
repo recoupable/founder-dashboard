@@ -12,9 +12,16 @@ interface PipelineColumnProps {
   customers: Customer[];
   onCustomerClick?: (customer: Customer) => void;
   onAddClick?: () => void;
+  onCustomerUpdate?: (customer: Customer) => void;
 }
 
-export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }: PipelineColumnProps) {
+export function PipelineColumn({ 
+  stage, 
+  customers, 
+  onCustomerClick, 
+  onAddClick,
+  onCustomerUpdate
+}: PipelineColumnProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [dropPosition, setDropPosition] = useState<{ id: string, position: 'top' | 'bottom' } | null>(null);
   const [showEmptyIndicator, setShowEmptyIndicator] = useState(false);
@@ -174,8 +181,6 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
             <h3 className="font-medium text-gray-900">{getStageName(stage)}</h3>
             <div className="text-sm text-gray-500 mt-1">
               <span>{customers.length} {customers.length === 1 ? 'customer' : 'customers'}</span>
-              <span className="mx-1">•</span>
-              <span>{formatCurrency(totalMRR)} MRR</span>
             </div>
           </div>
           {onAddClick && (
@@ -213,6 +218,7 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
             <CustomerCard 
               customer={customer} 
               onClick={onCustomerClick}
+              onCustomerUpdate={onCustomerUpdate}
             />
             
             {/* Drop indicator - bottom */}

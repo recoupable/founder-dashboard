@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Customer, PipelineStage } from '@/lib/customerService';
 import { ResponsiveCustomerCard } from './ResponsiveCustomerCard';
 import { usePipeline } from '@/context/PipelineContext';
+import { Plus } from 'lucide-react';
 
 interface ResponsivePipelineColumnProps {
   stage: PipelineStage;
@@ -69,24 +70,23 @@ export function ResponsivePipelineColumn({
       onDrop={handleDrop}
     >
       {/* Column Header */}
-      <div className="p-2 sm:p-3 border-b flex justify-between items-center">
+      <div className="p-3 border-b bg-white rounded-t-lg">
+        <div className="flex justify-between items-center">
         <div>
-          <h3 className="font-medium flex items-center text-sm sm:text-base">
-            {stage} <span className="ml-2 bg-gray-200 text-gray-700 rounded-full px-2 py-0.5 text-xs">{customers.length}</span>
-          </h3>
+            <h3 className="font-medium text-gray-900">{getStageName(stage)}</h3>
+            <div className="text-sm text-gray-500 mt-1">
+              <span>{customers.length} {customers.length === 1 ? 'customer' : 'customers'}</span>
+            </div>
         </div>
-        <div className="flex items-center gap-2">
+          {onAddClick && (
           <button 
             onClick={onAddClick}
-            className="text-gray-500 hover:text-gray-700"
-            aria-label="Add new customer"
-            title="Add new customer"
+              className="p-1 rounded-full hover:bg-gray-100"
+              aria-label="Add customer"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
+              <Plus size={20} className="text-gray-500" />
           </button>
+          )}
         </div>
       </div>
       

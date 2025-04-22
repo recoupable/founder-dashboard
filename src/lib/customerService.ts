@@ -7,6 +7,7 @@ const TABLE_NAME = 'sales_pipeline_customers'
 export type PipelineStage = 'Prospect' | 'Meeting' | 'Free Trial' | 'Paying Customer'
 export type CustomerType = 'Prospect' | 'Meeting' | 'Free Trial' | 'Paying Customer'
 export type PriorityLevel = 'Low' | 'Medium' | 'High' | 'Urgent'
+export type EngagementHealth = 'Active' | 'Warm' | 'At Risk'
 
 // Contact interface for the contacts array
 export interface Contact {
@@ -28,7 +29,12 @@ export interface Todo {
   id: string
   text: string
   completed: boolean
-  created_at: string
+}
+
+// Define a type for stage history entries
+export interface StageHistoryEntry {
+  stage: PipelineStage
+  timestamp: string
 }
 
 // Enhanced Customer interface
@@ -97,15 +103,22 @@ export interface Customer {
   // Timestamps
   created_at?: string
   updated_at?: string
-}
-
-// Define a type for stage history entries
-export interface StageHistoryEntry {
-  stage: PipelineStage
-  timestamp: string
-  previous_stage?: PipelineStage
-  days_in_previous_stage?: number
-  notes?: string
+  
+  // New user-focused fields
+  email?: string
+  organization?: string
+  conversion_target_date?: string
+  conversion_stage?: string
+  next_action?: string
+  internal_owner?: string
+  engagement_health?: EngagementHealth
+  use_case_type?: string
+  recoupable_user_id?: string
+  
+  // Data from Recoupable (populated from API/context, not stored in sales_pipeline_customers)
+  _recoupable_artists_count?: number
+  _recoupable_artists?: string[]
+  _recoupable_messages_sent?: number
 }
 
 interface CustomerRow {
@@ -276,15 +289,53 @@ export async function fetchCustomers(): Promise<Customer[]> {
 // Create a new customer
 export async function createCustomer(customer: Omit<Customer, 'id'>): Promise<Customer> {
   try {
+    // Convert customer data to database row format
     const row = customerToRow(customer)
+    
+    // Log the exact data being sent to Supabase for debugging
+    console.log('🔍 Creating customer with data:', { 
+      stage: row.stage,
+      name: row.name,
+      type: row.type,
+      full_data: row 
+    });
+    
+    // Ensure required fields have values and proper types
+    const sanitizedRow = {
+      ...row,
+      name: row.name?.trim() || 'Unnamed Customer',
+      stage: row.stage || 'Prospect',
+      type: row.type || 'Prospect',
+      current_artists: typeof row.current_artists === 'number' ? row.current_artists : 0,
+      potential_artists: typeof row.potential_artists === 'number' ? row.potential_artists : 0,
+      current_mrr: typeof row.current_mrr === 'number' ? row.current_mrr : 0,
+      potential_mrr: typeof row.potential_mrr === 'number' ? row.potential_mrr : 0,
+      order_index: typeof row.order_index === 'number' ? row.order_index : 0,
+      last_contact_date: row.last_contact_date || new Date().toISOString()
+    };
+    
+    // Remove any undefined values that might cause database errors
+    Object.keys(sanitizedRow).forEach(key => {
+      if (sanitizedRow[key] === undefined) {
+        delete sanitizedRow[key];
+      }
+    });
+    
+    console.log('📤 Sending sanitized data to Supabase:', sanitizedRow);
     
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .insert([row])
+      .insert([sanitizedRow])
       .select()
 
     if (error) {
-      console.error('Error creating customer:', error)
+      console.error('❌ Error creating customer:', error)
+      console.error('❌ Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      })
       throw error
     }
 
@@ -292,6 +343,7 @@ export async function createCustomer(customer: Omit<Customer, 'id'>): Promise<Cu
       throw new Error('No data returned after creating customer')
     }
 
+    console.log('✅ Customer created successfully:', data[0]);
     return rowToCustomer(data[0] as CustomerRow)
   } catch (error) {
     console.error('Error in createCustomer:', error)
@@ -303,6 +355,9 @@ export async function createCustomer(customer: Omit<Customer, 'id'>): Promise<Cu
 export async function updateCustomer(customer: Partial<Customer> & { id: string }): Promise<Customer> {
   try {
     console.log('🔄 Service: Attempting to update customer via API:', customer);
+    
+    // Always update localStorage immediately to ensure data persists
+    updateLocalStorageDirectly(customer);
     
     // Extract ID to ensure it's passed correctly
     const { id, ...customerData } = customer;
@@ -336,7 +391,6 @@ export async function updateCustomer(customer: Partial<Customer> & { id: string 
       
       // Use the fallback data if provided
       const fallbackData = result.fallbackData || customer;
-      updateLocalStorageDirectly(fallbackData);
       return createUpdatedCustomerObject(fallbackData);
     }
     
@@ -347,15 +401,12 @@ export async function updateCustomer(customer: Partial<Customer> & { id: string 
     }
     
     console.error('❌ Service: Customer update failed:', result.error);
-    throw new Error(result.error || 'Failed to update customer');
+    // Return the customer object we already created in localStorage
+    return createUpdatedCustomerObject(customer);
   } catch (error) {
     console.error('❌ Service: Error updating customer:', error);
     
-    // Fallback to local storage update in case of network failure
-    console.warn('⚠️ Service: API call failed, falling back to local storage');
-    updateLocalStorageDirectly(customer);
-    
-    // Return a customer object based on the input
+    // Return a customer object based on the input - data is already in localStorage
     return createUpdatedCustomerObject(customer);
   }
 }
@@ -389,11 +440,21 @@ function updateLocalStorageDirectly(customer: Partial<Customer> & { id: string }
     console.log('🔄 Service: Updating customer in local storage:', customer);
     
     // Get current customers from local storage
-    const customersJson = localStorage.getItem('customers');
+    const PIPELINE_STORAGE_KEY = 'pipelineData';
+    const storageJSON = localStorage.getItem(PIPELINE_STORAGE_KEY);
+    let storageData = null;
     let customers: Customer[] = [];
     
-    if (customersJson) {
-      customers = JSON.parse(customersJson);
+    // Parse existing storage data if available
+    if (storageJSON) {
+      try {
+        storageData = JSON.parse(storageJSON);
+        if (storageData && Array.isArray(storageData.customers)) {
+          customers = storageData.customers;
+        }
+      } catch (e) {
+        console.error('Error parsing pipelineData:', e);
+      }
     }
     
     // Find the index of the customer to update
@@ -407,9 +468,15 @@ function updateLocalStorageDirectly(customer: Partial<Customer> & { id: string }
       customers.push(customer as Customer);
     }
     
-    // Save back to local storage
-    localStorage.setItem('customers', JSON.stringify(customers));
-    console.log('✅ Service: Customer updated in local storage');
+    // Save back to local storage with proper format
+    const newStorageData = {
+      version: storageData?.version || '1.0',
+      timestamp: new Date().toISOString(),
+      customers: customers
+    };
+    
+    localStorage.setItem(PIPELINE_STORAGE_KEY, JSON.stringify(newStorageData));
+    console.log('✅ Service: Customer updated in pipeline storage');
   } catch (storageError) {
     console.error('❌ Service: Error updating local storage:', storageError);
   }
@@ -418,12 +485,22 @@ function updateLocalStorageDirectly(customer: Partial<Customer> & { id: string }
 // Helper to update local storage with data from API
 function updateLocalStorage(customerData: Customer) {
   try {
-    // Get current customers from local storage
-    const customersJson = localStorage.getItem('customers');
+    // Get current storage data
+    const PIPELINE_STORAGE_KEY = 'pipelineData';
+    const storageJSON = localStorage.getItem(PIPELINE_STORAGE_KEY);
+    let storageData = null;
     let customers: Customer[] = [];
     
-    if (customersJson) {
-      customers = JSON.parse(customersJson);
+    // Parse existing storage data if available
+    if (storageJSON) {
+      try {
+        storageData = JSON.parse(storageJSON);
+        if (storageData && Array.isArray(storageData.customers)) {
+          customers = storageData.customers;
+        }
+      } catch (e) {
+        console.error('Error parsing pipelineData:', e);
+      }
     }
     
     // Find the index of the customer to update
@@ -437,9 +514,15 @@ function updateLocalStorage(customerData: Customer) {
       customers.push(customerData);
     }
     
-    // Save back to local storage
-    localStorage.setItem('customers', JSON.stringify(customers));
-    console.log('✅ Service: Local storage synced with API data');
+    // Save back to local storage with proper format
+    const newStorageData = {
+      version: storageData?.version || '1.0',
+      timestamp: new Date().toISOString(),
+      customers: customers
+    };
+    
+    localStorage.setItem(PIPELINE_STORAGE_KEY, JSON.stringify(newStorageData));
+    console.log('✅ Service: Pipeline storage synced with API data');
   } catch (storageError) {
     console.error('❌ Service: Error syncing local storage:', storageError);
   }

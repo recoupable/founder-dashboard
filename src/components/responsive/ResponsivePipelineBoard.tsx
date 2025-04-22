@@ -112,10 +112,11 @@ export function ResponsivePipelineBoard() {
         await addCustomer(finalData);
       } else if (selectedCustomer) {
         console.log("Updating customer:", selectedCustomer.id);
+        // Make sure to await the update operation to complete
         await updateCustomer({ id: selectedCustomer.id, ...finalData });
       }
       
-      // Force close the modal
+      // Force close the modal only after database operations complete
       console.log("Closing form modal");
       setIsFormOpen(false);
       setSelectedStage(null);

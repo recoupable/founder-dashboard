@@ -35,7 +35,7 @@ interface PipelineContextType {
   loading: boolean;
   error: string | null;
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<void>;
-  updateCustomer: (customerData: Partial<Customer> & { id: string }) => Promise<void>;
+  updateCustomer: (customerData: Partial<Customer> & { id: string }) => Promise<Customer>;
   removeCustomer: (id: string) => Promise<void>;
   moveCustomerToStage: (customerId: string, newStage: PipelineStage) => Promise<void>;
   reorderCustomers: (sourceId: string, targetId: string) => Promise<void>;
@@ -177,54 +177,77 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Load customers from Supabase on initial render
   const loadCustomers = async () => {
     try {
-      console.log('🔄 Loading customers from Supabase...');
-      console.log('🔄 Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
-      console.log('🔄 Environment:', process.env.NODE_ENV);
+      console.log('🔄 Loading customers data...');
       
       setLoading(true);
       setError(null);
       
+      // Try to load from localStorage first
+      const savedCustomers = loadFromStorage();
+      if (savedCustomers && savedCustomers.length > 0) {
+        console.log('✅ Found data in localStorage, using that first');
+        setCustomers(savedCustomers);
+        setLoading(false);
+      }
+      
+      // Now try loading from API in the background
+      console.log('🔄 Attempting to connect to Supabase...');
+      
       // Check Supabase connection first
       const isConnected = await checkSupabaseConnection();
       if (!isConnected) {
-        console.error('❌ Failed to connect to Supabase');
-        throw new Error('Failed to connect to Supabase');
+        console.warn('⚠️ Failed to connect to Supabase, using localStorage data only');
+        if (!savedCustomers) {
+          setCustomers([]);
+        }
+        setLoading(false);
+        setInitialized(true);
+        return;
       }
       
       // Ensure the table exists
       const tableExists = await ensureTableExists();
       if (!tableExists) {
-        console.error('❌ Table does not exist and could not be created');
-        throw new Error('Table does not exist and could not be created');
+        console.warn('⚠️ Table issue, using localStorage data only');
+        if (!savedCustomers) {
+          setCustomers([]);
+        }
+        setLoading(false);
+        setInitialized(true);
+        return;
       }
       
+      // Fetch data from Supabase
       const data = await fetchCustomers();
-      console.log('✅ Fetched customers:', data.length);
+      console.log('✅ Fetched customers from API:', data.length);
       
       if (data.length > 0) {
+        // Only update with API data if it's not empty
         setCustomers(data);
-        console.log('✅ Set customers from Supabase data');
+        console.log('✅ Updated customers with Supabase data');
         
         // Also save to localStorage as backup
         saveToStorage(data);
-      } else {
-        // No customers in database and no initial data to load
-        console.log('🔄 No customers found in database');
+      } else if (!savedCustomers) {
+        // If no data from API and no data in localStorage
+        console.log('🔄 No customers found');
         setCustomers([]);
         saveToStorage([]);
       }
     } catch (err) {
       console.error('❌ Error loading customers from Supabase:', err);
-      setError('Failed to load customers. Using local data instead.');
+      setError('Failed to load customers from database. Using local data instead.');
       
-      // Fallback to localStorage if Supabase fails
+      // Fallback to localStorage if not already loaded
+      if (!customers.length) {
       const savedCustomers = loadFromStorage();
       if (savedCustomers) {
         setCustomers(savedCustomers);
-        console.log('✅ Loaded customers from localStorage');
+          console.log('✅ Loaded customers from localStorage as fallback');
       } else {
         console.log('🔄 No saved customers found, starting with empty pipeline');
         setCustomers([]);
+        }
       }
     } finally {
       setLoading(false);
@@ -252,67 +275,122 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
   // Add a new customer
   const addCustomer = async (customerData: Omit<Customer, 'id'>) => {
     try {
+      // Create a minimal valid customer object with required fields
+      const minimalCustomer = {
+        name: customerData.name || 'New Customer',
+        type: customerData.type || 'Prospect',
+        stage: customerData.stage || 'Prospect',
+        current_artists: typeof customerData.current_artists === 'number' ? customerData.current_artists : 0,
+        potential_artists: typeof customerData.potential_artists === 'number' ? customerData.potential_artists : 0,
+        current_mrr: typeof customerData.current_mrr === 'number' ? customerData.current_mrr : 0,
+        potential_mrr: typeof customerData.potential_mrr === 'number' ? customerData.potential_mrr : 0,
+        last_contact_date: customerData.last_contact_date || new Date().toISOString(),
+        // Only include these if present in customerData
+        email: customerData.email || undefined,
+        organization: customerData.organization || undefined,
+        notes: customerData.notes || undefined,
+        todos: Array.isArray(customerData.todos) ? customerData.todos : []
+      };
+
+      console.log(`💾 Creating new customer in stage "${minimalCustomer.stage}"`);
+      
       // Assign order_index for new customers
       // Get the highest order_index in this stage and add 1
-      const stageCustomers = getCustomersByStage(customerData.stage);
+      const stageCustomers = getCustomersByStage(minimalCustomer.stage);
       const maxOrderIndex = stageCustomers.length > 0
         ? Math.max(...stageCustomers.map(c => c.order_index || 0))
         : -1;
       
       const customerWithOrder = {
-        ...customerData,
+        ...minimalCustomer,
         order_index: maxOrderIndex + 1
       };
       
+      console.log('📤 Sending to createCustomer:', {
+        stage: customerWithOrder.stage,
+        name: customerWithOrder.name,
+        type: customerWithOrder.type
+      });
+      
       // Create the customer in the database
       const newCustomer = await createCustomer(customerWithOrder);
+      console.log('✅ Successfully created customer in database');
       setCustomers((prev) => [...prev, newCustomer]);
     } catch (err) {
-      console.error('Error adding customer:', err);
+      console.error('❌ Error adding customer:', err);
       setError('Failed to add customer');
       
-      // Fallback: add to local state only
-      const newCustomer: Customer = {
-        ...customerData,
+      // Create a fallback customer with minimal required data
+      const fallbackCustomer: Customer = {
         id: generateUUID(),
-        order_index: customers.filter(c => c.stage === customerData.stage).length
+        name: customerData.name || 'New Customer',
+        type: customerData.type || 'Prospect',
+        stage: customerData.stage || 'Prospect',
+        current_artists: typeof customerData.current_artists === 'number' ? customerData.current_artists : 0,
+        potential_artists: typeof customerData.potential_artists === 'number' ? customerData.potential_artists : 0,
+        current_mrr: typeof customerData.current_mrr === 'number' ? customerData.current_mrr : 0,
+        potential_mrr: typeof customerData.potential_mrr === 'number' ? customerData.potential_mrr : 0,
+        last_contact_date: customerData.last_contact_date || new Date().toISOString(),
+        order_index: customers.filter(c => c.stage === customerData.stage).length,
+        todos: Array.isArray(customerData.todos) ? customerData.todos : []
       };
       
-      setCustomers((prev) => [...prev, newCustomer]);
-      saveToStorage([...customers, newCustomer]);
+      console.log('⚠️ Creating fallback customer in local state only:', fallbackCustomer);
+      setCustomers((prev) => [...prev, fallbackCustomer]);
+      saveToStorage([...customers, fallbackCustomer]);
     }
   };
 
   // Update an existing customer
   const updateCustomerData = async (customerData: Partial<Customer> & { id: string }) => {
     try {
-      // Immediately update the UI with the new data
-      setCustomers((prev) =>
-        prev.map((customer) =>
+      console.log("💾 Starting customer update process:", customerData.id);
+      
+      // Create a reference to the updated customers list for local storage
+      // Use a callback form to ensure we're working with the most recent state
+      setCustomers(prevCustomers => {
+        const updatedCustomers = prevCustomers.map(customer => 
           customer.id === customerData.id ? { ...customer, ...customerData } : customer
-        )
       );
       
       // Save to local storage right away
-      const updatedCustomers = customers.map(customer => 
-        customer.id === customerData.id ? { ...customer, ...customerData } : customer
-      );
       saveToStorage(updatedCustomers);
+        console.log("✅ Local state and storage updated immediately");
+        
+        return updatedCustomers;
+      });
       
       // Then attempt to update in the database
+      try {
+        // Use await here to ensure the function doesn't return until database update completes
       const updatedCustomer = await updateCustomer(customerData);
+        console.log("✅ Customer updated in database:", updatedCustomer.id);
       
       // Update again with the response from the server (which might have additional fields)
-      setCustomers((prev) =>
-        prev.map((customer) =>
+        setCustomers(prevCustomers => {
+          const refreshedCustomers = prevCustomers.map(customer => 
           customer.id === customerData.id ? updatedCustomer : customer
-        )
-      );
+          );
+          
+          // Save the updated data from API to storage
+          saveToStorage(refreshedCustomers);
+          console.log("✅ Local state refreshed with API data");
+          
+          return refreshedCustomers;
+        });
+        
+        // Return the updated customer to fulfill the promise
+        return updatedCustomer;
+      } catch (apiError) {
+        console.error("❌ API update failed but local changes preserved:", apiError);
+        // Throw error so caller knows there was a problem with the API
+        throw apiError;
+      }
     } catch (err) {
-      console.error('Error updating customer:', err);
+      console.error('❌ Error in updateCustomerData:', err);
       setError('Failed to update customer in database, but local changes were saved');
-      
-      // No need to update local state again since we already did it at the beginning
+      // Re-throw the error so the caller knows there was a problem
+      throw err;
     }
   };
 

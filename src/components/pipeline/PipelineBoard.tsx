@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Customer, PipelineStage } from '@/lib/customerService';
+import { Customer, PipelineStage, CustomerType } from '@/lib/customerService';
 import { usePipeline } from '@/context/PipelineContext';
 import { PipelineColumn } from './PipelineColumn';
 import { CustomerFormModal } from '@/components/pipeline/CustomerFormModal';
@@ -139,23 +139,42 @@ export function PipelineBoard() {
   // Handle save customer
   const handleSaveCustomer = async (customerData: Omit<Customer, 'id'>) => {
     try {
+      console.log("PipelineBoard: Starting save with stage:", customerData.stage, "selectedStage:", selectedStage);
+      
       // If a stage was selected, use that stage
-      const finalData = selectedStage 
-        ? { ...customerData, stage: selectedStage }
-        : customerData;
+      const finalData = {
+        ...customerData,
+        // CRITICAL FIX: Always use selectedStage if it exists, otherwise keep existing stage
+        stage: selectedStage || customerData.stage,
+        // Make sure type matches stage for consistency
+        type: (selectedStage || customerData.stage) as CustomerType
+      };
+      
+      console.log("PipelineBoard: Final data prepared for save:", {
+        stage: finalData.stage,
+        name: finalData.name,
+        isCreating: isCreating
+      });
         
       if (isCreating) {
+        // Make sure to await the add operation to complete
         await addCustomer(finalData);
+        console.log("PipelineBoard: Successfully added new customer");
       } else if (selectedCustomer) {
+        // Make sure to await the update operation to complete
         await updateCustomer({ 
           id: selectedCustomer.id, 
           ...finalData 
         });
+        console.log("PipelineBoard: Successfully updated customer");
       }
+      
+      // Only close the form after database operations are complete
       setIsFormOpen(false);
       setSelectedStage(null);
     } catch (error) {
       console.error('Error saving customer:', error);
+      alert('Error saving customer. Please try again.');
     }
   };
   
@@ -255,6 +274,7 @@ export function PipelineBoard() {
             customers={getCustomersByStage(stage)}
             onCustomerClick={handleCustomerClick}
             onAddClick={() => handleAddCustomer(stage)}
+            onCustomerUpdate={updateCustomer}
           />
         ))}
       </div>
