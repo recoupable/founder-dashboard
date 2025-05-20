@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { conversationService } from '@/lib/conversationService';
-import type { ConversationListItem, ConversationDetail, ConversationFilters, Message } from '@/lib/conversationService';
+import type { ConversationListItem, ConversationDetail, ConversationFilters } from '@/lib/conversationService';
 import ReactMarkdown from 'react-markdown';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
@@ -22,8 +22,6 @@ interface ConversationWithDetail extends ConversationListItem {
   detail: ConversationDetail | null;
   messageCount?: number;
 }
-
-type ExtendedConversation = ConversationListItem & { detail?: { messages?: Message[] } };
 
 function Switch({ checked, onChange, className, children }: SwitchProps) {
   return (
@@ -62,6 +60,11 @@ export default function ConversationsPage() {
 
   type SegmentReport = { id: string; account_email: string; created_at: string };
   const [segmentReports, setSegmentReports] = React.useState<SegmentReport[]>([]);
+  const [messagesByUser, setMessagesByUser] = useState<Record<string, number>>({});
+
+  // Add state for segmentReportsByUser
+  const [segmentReportsByUser, setSegmentReportsByUser] = useState<Record<string, number>>({});
+
   React.useEffect(() => {
     async function fetchReports() {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -406,6 +409,34 @@ export default function ConversationsPage() {
     fetchSegmentReportCounts();
   }, []);
 
+  // Fetch message counts from the API on mount
+  useEffect(() => {
+    fetch('/api/conversations/message-counts')
+      .then(res => res.json())
+      .then((data: { account_email: string, message_count: number }[]) => {
+        const map: Record<string, number> = {};
+        for (const row of data) {
+          map[row.account_email] = row.message_count;
+        }
+        setMessagesByUser(map);
+      });
+  }, []);
+
+  // Fetch segment report counts from the API on mount
+  useEffect(() => {
+    fetch('/api/conversations/leaderboard')
+      .then(res => res.json())
+      .then((data: { segmentReports: { email: string, segment_report_count: number }[] }) => {
+        const map: Record<string, number> = {};
+        if (data.segmentReports) {
+          for (const row of data.segmentReports) {
+            map[row.email] = row.segment_report_count;
+          }
+        }
+        setSegmentReportsByUser(map);
+      });
+  }, []);
+
   // Helper for percent change
   function getPercentChange(current: number, previous: number) {
     if (previous === 0 && current > 0) return 'N/A';
@@ -712,21 +743,7 @@ export default function ConversationsPage() {
               }
             }
             // 2. Aggregate messages sent this month by user
-            const messagesByUser: Record<string, number> = {};
-            for (const conv of conversations as ExtendedConversation[]) {
-              const email = conv.account_email;
-              if (!isNotTestEmail(email)) continue;
-              const detail = conv.detail;
-              if (!detail || !detail.messages) continue;
-              for (const msg of detail.messages ?? []) {
-                if (msg.role === 'user') {
-                  const created = new Date(msg.created_at);
-                  if (created >= startOfMonth) {
-                    messagesByUser[email] = (messagesByUser[email] || 0) + 1;
-                  }
-                }
-              }
-            }
+            // Use the messagesByUser state instead
             // 3. Aggregate segment reports generated this month by user
             const reportsByUser: Record<string, number> = {};
             for (const report of segmentReports) {
@@ -743,15 +760,18 @@ export default function ConversationsPage() {
               ...Object.keys(messagesByUser),
               ...Object.keys(reportsByUser)
             ]);
-            const leaderboard = Array.from(allUsers).map(email => {
-              return {
-                email,
-                rooms: roomsByUser[email] || 0,
-                messages: messagesByUser[email] || 0,
-                reports: reportsByUser[email] || 0,
-                score: (roomsByUser[email] || 0) + (messagesByUser[email] || 0) + (reportsByUser[email] || 0)
-              };
-            }).filter(u => u.score > 0);
+            const leaderboard = Array.from(allUsers)
+              .filter(isNotTestEmail)
+              .map(email => {
+                return {
+                  email,
+                  rooms: roomsByUser[email] || 0,
+                  messages: messagesByUser[email] || 0,
+                  reports: segmentReportsByUser[email] || 0,
+                  score: (roomsByUser[email] || 0) + (messagesByUser[email] || 0) + (segmentReportsByUser[email] || 0)
+                };
+              })
+              .filter(u => u.score > 0);
             leaderboard.sort((a, b) => b.score - a.score);
             return (
               <div className="overflow-x-auto">
@@ -759,20 +779,18 @@ export default function ConversationsPage() {
                   <thead>
                     <tr className="bg-gray-50">
                       <th className="px-4 py-2 text-left font-semibold">User Email</th>
-                      <th className="px-4 py-2 text-center font-semibold">Score</th>
                       <th className="px-4 py-2 text-center font-semibold">Messages</th>
-                      <th className="px-4 py-2 text-center font-semibold">Segment Reports</th>
                       <th className="px-4 py-2 text-center font-semibold">Rooms Created</th>
+                      <th className="px-4 py-2 text-center font-semibold">Segment Reports</th>
                     </tr>
                   </thead>
                   <tbody>
                     {leaderboard.map((user, idx) => (
                       <tr key={user.email} className={idx < 3 ? 'bg-yellow-50' : ''}>
                         <td className="px-4 py-2 font-mono text-xs sm:text-sm">{user.email}</td>
-                        <td className="px-4 py-2 text-center font-bold text-lg">{user.score}</td>
                         <td className="px-4 py-2 text-center">{user.messages}</td>
-                        <td className="px-4 py-2 text-center">{user.reports}</td>
                         <td className="px-4 py-2 text-center">{user.rooms}</td>
+                        <td className="px-4 py-2 text-center">{user.reports}</td>
                       </tr>
                     ))}
                   </tbody>

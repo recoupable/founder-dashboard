@@ -195,4 +195,21 @@ function createFallbackConversation() {
     email: 'unknown@example.com',
     artist_id: 'unknown'
   };
+}
+
+// Add a new export for message counts by user for the current month
+export async function GET_MESSAGE_COUNTS_BY_USER() {
+  // Get the first day of the current month
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+  // Query Supabase for messages sent by users this month, grouped by account_email
+  // Assume 'memories' table has 'room_id', 'created_at', and 'content' (with role info)
+  // We'll join with rooms and account_emails to get the user email
+  const { data, error } = await supabaseAdmin.rpc('get_message_counts_by_user', { start_date: startOfMonth });
+  if (error) {
+    console.error('Error fetching message counts by user:', error);
+    return NextResponse.json({ error: 'Failed to fetch message counts by user' }, { status: 500 });
+  }
+  return NextResponse.json(data);
 } 
