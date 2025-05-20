@@ -1,5 +1,3 @@
-import { getStripeMRR } from './stripe';
-
 // Manual enterprise customers with verified MRR
 const ENTERPRISE_CUSTOMERS = [
   { name: 'Tyler Tee Grizzley', mrr: 999 },
@@ -55,7 +53,7 @@ interface MonthlyFinancials {
 
 // Calculate monthly financials with only verified numbers
 export async function getMonthlyFinancials(): Promise<MonthlyFinancials> {
-  const stripeMRR = await getStripeMRR();
+  const stripeMRR = 0;
   const enterpriseMRR = getEnterpriseMRR();
   const totalMRR = stripeMRR + enterpriseMRR;
   const totalRevenue = totalMRR + MONTHLY_GRANT;
