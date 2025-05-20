@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server'
-import { getPayingCustomersCount } from '@/lib/stripe'
 import { getActiveUsersCount } from '@/lib/privy'
 import { getSalesPipelineValue } from '@/lib/supabase'
 
 export async function GET() {
   try {
     // Fetch all metrics in parallel
-    const [payingCustomers, activeUsers, pipelineValue] = await Promise.all([
-      getPayingCustomersCount(),
+    const [activeUsers, pipelineValue] = await Promise.all([
       getActiveUsersCount(),
       getSalesPipelineValue(),
     ])
 
     return NextResponse.json({
-      payingCustomers,
+      payingCustomers: 0,
       activeUsers,
       pipelineValue,
       timestamp: new Date().toISOString(),

@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { conversationService, ConversationListItem, ConversationDetail, ConversationFilters } from '@/lib/conversationService';
+import { conversationService } from '@/lib/conversationService';
+import type { ConversationListItem, ConversationDetail, ConversationFilters } from '@/lib/conversationService';
 import ReactMarkdown from 'react-markdown';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
@@ -56,6 +57,27 @@ export default function ConversationsPage() {
   
   // Segment report counts state
   const [segmentReportCounts, setSegmentReportCounts] = useState({ today: 0, week: 0, month: 0, prevDay: 0, prevWeek: 0, prevMonth: 0 });
+
+  type SegmentReport = { id: string; account_email: string; created_at: string };
+  const [segmentReports, setSegmentReports] = React.useState<SegmentReport[]>([]);
+  const [messagesByUser, setMessagesByUser] = useState<Record<string, number>>({});
+
+  // Add state for segmentReportsByUser
+  const [segmentReportsByUser, setSegmentReportsByUser] = useState<Record<string, number>>({});
+
+  React.useEffect(() => {
+    async function fetchReports() {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !supabaseAnonKey) return;
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      const { data, error } = await supabase
+        .from('segment_reports')
+        .select('id, account_email, created_at');
+      if (!error && data) setSegmentReports(data);
+    }
+    fetchReports();
+  }, []);
 
   // Listen for data source updates
   useEffect(() => {
@@ -312,7 +334,6 @@ export default function ConversationsPage() {
       endOfPrevWeek.setMilliseconds(-1);
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
       // Log date ranges for debugging
       console.log('Segment Report Date Ranges:');
@@ -386,6 +407,34 @@ export default function ConversationsPage() {
       });
     }
     fetchSegmentReportCounts();
+  }, []);
+
+  // Fetch message counts from the API on mount
+  useEffect(() => {
+    fetch('/api/conversations/message-counts')
+      .then(res => res.json())
+      .then((data: { account_email: string, message_count: number }[]) => {
+        const map: Record<string, number> = {};
+        for (const row of data) {
+          map[row.account_email] = row.message_count;
+        }
+        setMessagesByUser(map);
+      });
+  }, []);
+
+  // Fetch segment report counts from the API on mount
+  useEffect(() => {
+    fetch('/api/conversations/leaderboard')
+      .then(res => res.json())
+      .then((data: { segmentReports: { email: string, segment_report_count: number }[] }) => {
+        const map: Record<string, number> = {};
+        if (data.segmentReports) {
+          for (const row of data.segmentReports) {
+            map[row.email] = row.segment_report_count;
+          }
+        }
+        setSegmentReportsByUser(map);
+      });
   }, []);
 
   // Helper for percent change
@@ -560,11 +609,10 @@ export default function ConversationsPage() {
                 const now = new Date();
                 const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                 const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
                 const curr = testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfMonth).length;
                 const prev = testEmailFilteredConversations.filter(conv => {
                   const created = new Date(conv.created_at);
-                  return created >= prevMonth && created <= prevMonthEnd;
+                  return created >= prevMonth && created <= new Date(prevMonth.getFullYear(), prevMonth.getMonth(), 30);
                 }).length;
                 let percent = null;
                 if (prev === 0 && curr > 0) percent = 'N/A';
@@ -677,7 +725,7 @@ export default function ConversationsPage() {
             const now = new Date();
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
             // Helper: filter out test emails
-            const isNotTestEmail = (email) => {
+            const isNotTestEmail = (email: string): boolean => {
               if (!email) return false;
               if (testEmails.includes(email)) return false;
               if (email.includes('@example.com')) return false;
@@ -685,7 +733,7 @@ export default function ConversationsPage() {
               return true;
             };
             // 1. Aggregate rooms created this month by user
-            const roomsByUser = {};
+            const roomsByUser: Record<string, number> = {};
             for (const conv of testEmailFilteredConversations) {
               const email = conv.account_email;
               if (!isNotTestEmail(email)) continue;
@@ -695,40 +743,9 @@ export default function ConversationsPage() {
               }
             }
             // 2. Aggregate messages sent this month by user
-            const messagesByUser = {};
-            for (const conv of conversations) {
-              const email = conv.account_email;
-              if (!isNotTestEmail(email)) continue;
-              if (!conv.detail || !conv.detail.messages) continue;
-              for (const msg of conv.detail.messages) {
-                if (msg.role === 'user') {
-                  const created = new Date(msg.created_at);
-                  if (created >= startOfMonth) {
-                    messagesByUser[email] = (messagesByUser[email] || 0) + 1;
-                  }
-                }
-              }
-            }
+            // Use the messagesByUser state instead
             // 3. Aggregate segment reports generated this month by user
-            // We'll need to fetch segment_reports for this month
-            // For now, assume we have a segmentReports array in state (to be fetched in useEffect)
-            // Example: [{ id, account_email, created_at }]
-            // We'll use a placeholder if not available
-            const [segmentReports, setSegmentReports] = React.useState([]);
-            React.useEffect(() => {
-              async function fetchReports() {
-                const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-                const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-                if (!supabaseUrl || !supabaseAnonKey) return;
-                const supabase = createClient(supabaseUrl, supabaseAnonKey);
-                const { data, error } = await supabase
-                  .from('segment_reports')
-                  .select('id, account_email, created_at');
-                if (!error && data) setSegmentReports(data);
-              }
-              fetchReports();
-            }, []);
-            const reportsByUser = {};
+            const reportsByUser: Record<string, number> = {};
             for (const report of segmentReports) {
               const email = report.account_email;
               if (!isNotTestEmail(email)) continue;
@@ -743,15 +760,18 @@ export default function ConversationsPage() {
               ...Object.keys(messagesByUser),
               ...Object.keys(reportsByUser)
             ]);
-            const leaderboard = Array.from(allUsers).map(email => {
-              return {
-                email,
-                rooms: roomsByUser[email] || 0,
-                messages: messagesByUser[email] || 0,
-                reports: reportsByUser[email] || 0,
-                score: (roomsByUser[email] || 0) + (messagesByUser[email] || 0) + (reportsByUser[email] || 0)
-              };
-            }).filter(u => u.score > 0);
+            const leaderboard = Array.from(allUsers)
+              .filter(isNotTestEmail)
+              .map(email => {
+                return {
+                  email,
+                  rooms: roomsByUser[email] || 0,
+                  messages: messagesByUser[email] || 0,
+                  reports: segmentReportsByUser[email] || 0,
+                  score: (roomsByUser[email] || 0) + (messagesByUser[email] || 0) + (segmentReportsByUser[email] || 0)
+                };
+              })
+              .filter(u => u.score > 0);
             leaderboard.sort((a, b) => b.score - a.score);
             return (
               <div className="overflow-x-auto">
@@ -759,20 +779,18 @@ export default function ConversationsPage() {
                   <thead>
                     <tr className="bg-gray-50">
                       <th className="px-4 py-2 text-left font-semibold">User Email</th>
-                      <th className="px-4 py-2 text-center font-semibold">Score</th>
                       <th className="px-4 py-2 text-center font-semibold">Messages</th>
-                      <th className="px-4 py-2 text-center font-semibold">Segment Reports</th>
                       <th className="px-4 py-2 text-center font-semibold">Rooms Created</th>
+                      <th className="px-4 py-2 text-center font-semibold">Segment Reports</th>
                     </tr>
                   </thead>
                   <tbody>
                     {leaderboard.map((user, idx) => (
                       <tr key={user.email} className={idx < 3 ? 'bg-yellow-50' : ''}>
                         <td className="px-4 py-2 font-mono text-xs sm:text-sm">{user.email}</td>
-                        <td className="px-4 py-2 text-center font-bold text-lg">{user.score}</td>
                         <td className="px-4 py-2 text-center">{user.messages}</td>
-                        <td className="px-4 py-2 text-center">{user.reports}</td>
                         <td className="px-4 py-2 text-center">{user.rooms}</td>
+                        <td className="px-4 py-2 text-center">{user.reports}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -827,7 +845,7 @@ export default function ConversationsPage() {
                                 ...conv,
                                 detail
                               };
-                            } catch (err) {
+                            } catch (err: unknown) {
                               console.error(`Error fetching details for room ${conv.room_id}:`, err);
                               return {
                                 ...conv,
@@ -884,7 +902,7 @@ export default function ConversationsPage() {
                         a.click();
                         document.body.removeChild(a);
                         URL.revokeObjectURL(url);
-                      } catch (error) {
+                      } catch (error: unknown) {
                         console.error("Error exporting conversations:", error);
                         alert("There was an error exporting conversations. See console for details.");
                       } finally {
@@ -1032,6 +1050,7 @@ export default function ConversationsPage() {
                   )}
                   <div className="flex justify-end mt-2">
                     <button
+                      type="button"
                       onClick={() => {
                         // Create a JSON blob
                         const jsonData = JSON.stringify(conversationDetail, null, 2);

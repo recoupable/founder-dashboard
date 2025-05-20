@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { getPayingCustomersCount } from '@/lib/stripe'
 import { PrivyClient, User } from '@privy-io/server-auth'
 
 if (!process.env.PRIVY_API_KEY || !process.env.NEXT_PUBLIC_PRIVY_APP_ID) {
@@ -265,7 +264,7 @@ export async function GET(request: Request) {
     }
 
     // Get current paying customers
-    const currentPayingCustomers = await getPayingCustomersCount();
+    const currentPayingCustomers = 0;
     console.log('API: Current paying customers:', currentPayingCustomers);
 
     // Format labels based on timeframe

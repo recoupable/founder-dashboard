@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
 import { supabase } from '@/lib/supabase'
 import { PrivyClient } from '@privy-io/server-auth'
 
@@ -13,9 +12,6 @@ const privyClient = new PrivyClient(
 
 export async function GET() {
   try {
-    // Test Stripe connection
-    const stripeTest = await stripe.customers.list({ limit: 1 })
-    
     // Test Supabase connection
     const { data: supabaseTest, error: supabaseError } = await supabase
       .from('active_users')
@@ -30,12 +26,10 @@ export async function GET() {
     return NextResponse.json({
       status: 'success',
       connections: {
-        stripe: 'Connected',
         supabase: 'Connected',
         privy: 'Connected',
       },
       details: {
-        stripe: stripeTest.data.length,
         supabase: supabaseTest.length,
         privy: privyTest,
       }

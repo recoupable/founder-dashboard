@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Customer, PipelineStage } from '@/lib/customerService';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import type { Customer, PipelineStage } from '@/lib/customerService';
 import { usePipeline } from '@/context/PipelineContext';
 import { PipelineColumn } from '../pipeline/PipelineColumn';
 import { CustomerFormModal } from '@/components/pipeline/CustomerFormModal';
@@ -28,16 +28,17 @@ export function ResponsivePipelineBoard() {
   // Clear timer on component unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
+      const timer = timerRef.current;
+      if (timer) {
+        clearTimeout(timer);
       }
     };
   }, []);
   
   // Handle click outside to close exit value popup
-  const handleDocumentClick = () => {
+  const handleDocumentClick = useCallback(() => {
     setShowExitValue(false);
-  };
+  }, []);
   
   // Add event listener for document click
   useEffect(() => {
@@ -45,7 +46,7 @@ export function ResponsivePipelineBoard() {
     return () => {
       document.removeEventListener('click', handleDocumentClick);
     };
-  }, []);
+  }, [handleDocumentClick]);
   
   // Get all pipeline stages
   const pipelineStages: PipelineStage[] = [

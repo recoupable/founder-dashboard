@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(request: NextRequest) {
@@ -61,10 +62,10 @@ export async function GET(request: NextRequest) {
     const messageCountMap = new Map<string, number>();
     if (memoriesData && memoriesData.length > 0) {
       // Count occurrences of each room_id
-      memoriesData.forEach((memory: { room_id: string }) => {
+      for (const memory of memoriesData as { room_id: string }[]) {
         const count = messageCountMap.get(memory.room_id) || 0;
         messageCountMap.set(memory.room_id, count + 1);
-      });
+      }
       console.log(`Found message counts for ${messageCountMap.size} rooms`);
     } else {
       console.log('No messages found');
@@ -107,24 +108,24 @@ export async function GET(request: NextRequest) {
     // Create maps for quick lookups
     const accountNamesMap = new Map();
     if (accountsResponse.data) {
-      accountsResponse.data.forEach((account) => {
+      for (const account of accountsResponse.data) {
         accountNamesMap.set(account.id, account.name);
-      });
+      }
     }
 
     const accountEmailsMap = new Map();
     if (accountEmailsResponse.data) {
-      accountEmailsResponse.data.forEach((entry) => {
+      for (const entry of accountEmailsResponse.data) {
         accountEmailsMap.set(entry.account_id, entry.email);
-      });
+      }
     }
     
     // Create artist names map
     const artistNamesMap = new Map();
     if (artistAccountsResponse.data) {
-      artistAccountsResponse.data.forEach((artist) => {
+      for (const artist of artistAccountsResponse.data) {
         artistNamesMap.set(artist.id, artist.name);
-      });
+      }
     }
 
     // Transform the data
@@ -160,9 +161,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         result.filter(
           (conversation) =>
-            conversation.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            conversation.artist_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (conversation.topic && conversation.topic.toLowerCase().includes(searchQuery.toLowerCase()))
+            conversation.email?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
+            conversation.artist_name?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
+            conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
         )
       );
     }
