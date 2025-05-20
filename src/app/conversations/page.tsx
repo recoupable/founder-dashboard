@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { conversationService, ConversationListItem, ConversationDetail, ConversationFilters } from '@/lib/conversationService';
+import { conversationService } from '@/lib/conversationService';
+import type { ConversationListItem, ConversationDetail, ConversationFilters, Message } from '@/lib/conversationService';
 import ReactMarkdown from 'react-markdown';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
@@ -21,6 +22,8 @@ interface ConversationWithDetail extends ConversationListItem {
   detail: ConversationDetail | null;
   messageCount?: number;
 }
+
+type ExtendedConversation = ConversationListItem & { detail?: { messages?: Message[] } };
 
 function Switch({ checked, onChange, className, children }: SwitchProps) {
   return (
@@ -710,10 +713,10 @@ export default function ConversationsPage() {
             }
             // 2. Aggregate messages sent this month by user
             const messagesByUser: Record<string, number> = {};
-            for (const conv of conversations) {
-              const email = (conv as any).account_email;
+            for (const conv of conversations as ExtendedConversation[]) {
+              const email = conv.account_email;
               if (!isNotTestEmail(email)) continue;
-              const detail = (conv as any).detail;
+              const detail = conv.detail;
               if (!detail || !detail.messages) continue;
               for (const msg of detail.messages ?? []) {
                 if (msg.role === 'user') {
@@ -727,9 +730,9 @@ export default function ConversationsPage() {
             // 3. Aggregate segment reports generated this month by user
             const reportsByUser: Record<string, number> = {};
             for (const report of segmentReports) {
-              const email = (report as any).account_email;
+              const email = report.account_email;
               if (!isNotTestEmail(email)) continue;
-              const created = new Date((report as any).created_at);
+              const created = new Date(report.created_at);
               if (created >= startOfMonth) {
                 reportsByUser[email] = (reportsByUser[email] || 0) + 1;
               }
@@ -824,7 +827,7 @@ export default function ConversationsPage() {
                                 ...conv,
                                 detail
                               };
-                            } catch (err) {
+                            } catch (err: unknown) {
                               console.error(`Error fetching details for room ${conv.room_id}:`, err);
                               return {
                                 ...conv,
@@ -881,7 +884,7 @@ export default function ConversationsPage() {
                         a.click();
                         document.body.removeChild(a);
                         URL.revokeObjectURL(url);
-                      } catch (error) {
+                      } catch (error: unknown) {
                         console.error("Error exporting conversations:", error);
                         alert("There was an error exporting conversations. See console for details.");
                       } finally {
@@ -1029,6 +1032,7 @@ export default function ConversationsPage() {
                   )}
                   <div className="flex justify-end mt-2">
                     <button
+                      type="button"
                       onClick={() => {
                         // Create a JSON blob
                         const jsonData = JSON.stringify(conversationDetail, null, 2);
