@@ -57,6 +57,22 @@ export default function ConversationsPage() {
   // Segment report counts state
   const [segmentReportCounts, setSegmentReportCounts] = useState({ today: 0, week: 0, month: 0, prevDay: 0, prevWeek: 0, prevMonth: 0 });
 
+  type SegmentReport = { id: string; account_email: string; created_at: string };
+  const [segmentReports, setSegmentReports] = React.useState<SegmentReport[]>([]);
+  React.useEffect(() => {
+    async function fetchReports() {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !supabaseAnonKey) return;
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      const { data, error } = await supabase
+        .from('segment_reports')
+        .select('id, account_email, created_at');
+      if (!error && data) setSegmentReports(data);
+    }
+    fetchReports();
+  }, []);
+
   // Listen for data source updates
   useEffect(() => {
     const handleDataSourceUpdate = (event: CustomEvent) => {
@@ -312,7 +328,6 @@ export default function ConversationsPage() {
       endOfPrevWeek.setMilliseconds(-1);
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
 
       // Log date ranges for debugging
       console.log('Segment Report Date Ranges:');
@@ -560,11 +575,10 @@ export default function ConversationsPage() {
                 const now = new Date();
                 const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                 const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
                 const curr = testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfMonth).length;
                 const prev = testEmailFilteredConversations.filter(conv => {
                   const created = new Date(conv.created_at);
-                  return created >= prevMonth && created <= prevMonthEnd;
+                  return created >= prevMonth && created <= new Date(prevMonth.getFullYear(), prevMonth.getMonth(), 30);
                 }).length;
                 let percent = null;
                 if (prev === 0 && curr > 0) percent = 'N/A';
@@ -677,7 +691,7 @@ export default function ConversationsPage() {
             const now = new Date();
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
             // Helper: filter out test emails
-            const isNotTestEmail = (email) => {
+            const isNotTestEmail = (email: string): boolean => {
               if (!email) return false;
               if (testEmails.includes(email)) return false;
               if (email.includes('@example.com')) return false;
@@ -685,7 +699,7 @@ export default function ConversationsPage() {
               return true;
             };
             // 1. Aggregate rooms created this month by user
-            const roomsByUser = {};
+            const roomsByUser: Record<string, number> = {};
             for (const conv of testEmailFilteredConversations) {
               const email = conv.account_email;
               if (!isNotTestEmail(email)) continue;
@@ -695,12 +709,13 @@ export default function ConversationsPage() {
               }
             }
             // 2. Aggregate messages sent this month by user
-            const messagesByUser = {};
+            const messagesByUser: Record<string, number> = {};
             for (const conv of conversations) {
-              const email = conv.account_email;
+              const email = (conv as any).account_email;
               if (!isNotTestEmail(email)) continue;
-              if (!conv.detail || !conv.detail.messages) continue;
-              for (const msg of conv.detail.messages) {
+              const detail = (conv as any).detail;
+              if (!detail || !detail.messages) continue;
+              for (const msg of detail.messages ?? []) {
                 if (msg.role === 'user') {
                   const created = new Date(msg.created_at);
                   if (created >= startOfMonth) {
@@ -710,29 +725,11 @@ export default function ConversationsPage() {
               }
             }
             // 3. Aggregate segment reports generated this month by user
-            // We'll need to fetch segment_reports for this month
-            // For now, assume we have a segmentReports array in state (to be fetched in useEffect)
-            // Example: [{ id, account_email, created_at }]
-            // We'll use a placeholder if not available
-            const [segmentReports, setSegmentReports] = React.useState([]);
-            React.useEffect(() => {
-              async function fetchReports() {
-                const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-                const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-                if (!supabaseUrl || !supabaseAnonKey) return;
-                const supabase = createClient(supabaseUrl, supabaseAnonKey);
-                const { data, error } = await supabase
-                  .from('segment_reports')
-                  .select('id, account_email, created_at');
-                if (!error && data) setSegmentReports(data);
-              }
-              fetchReports();
-            }, []);
-            const reportsByUser = {};
+            const reportsByUser: Record<string, number> = {};
             for (const report of segmentReports) {
-              const email = report.account_email;
+              const email = (report as any).account_email;
               if (!isNotTestEmail(email)) continue;
-              const created = new Date(report.created_at);
+              const created = new Date((report as any).created_at);
               if (created >= startOfMonth) {
                 reportsByUser[email] = (reportsByUser[email] || 0) + 1;
               }
