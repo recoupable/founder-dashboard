@@ -198,7 +198,7 @@ function createFallbackConversation() {
 }
 
 // Add a new export for message counts by user for the current month
-export async function GET_MESSAGE_COUNTS_BY_USER() {
+async function GET_MESSAGE_COUNTS_BY_USER() {
   // Get the first day of the current month
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
