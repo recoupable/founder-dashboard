@@ -69,12 +69,51 @@ export async function GET(request: Request) {
       }
     }
     
-    // Step 4: Get messages for this room
-    const { data: messagesData, error: messagesError } = await supabaseAdmin
-      .from('memories')
-      .select('id, content, updated_at')
+    // Step 1.5: Check if this is a segment room
+    const { data: segmentRoom } = await supabaseAdmin
+      .from('segment_rooms')
+      .select('segment_id')
       .eq('room_id', roomId)
-      .order('updated_at', { ascending: true });
+      .single();
+
+    let segmentReport = null;
+    let segmentReportTimestamp = null;
+    if (segmentRoom && segmentRoom.segment_id) {
+      // Fetch the segment report
+      const { data: reportData } = await supabaseAdmin
+        .from('segment_reports')
+        .select('report, next_steps, updated_at')
+        .eq('id', segmentRoom.segment_id)
+        .single();
+      if (reportData) {
+        segmentReport = reportData;
+        segmentReportTimestamp = reportData.updated_at;
+      }
+    }
+
+    // Step 4: Get messages for this room
+    let messagesData = [];
+    let messagesError = null;
+    if (segmentReport && segmentReportTimestamp) {
+      // Only fetch messages after the segment report
+      const result = await supabaseAdmin
+        .from('memories')
+        .select('id, content, updated_at')
+        .eq('room_id', roomId)
+        .gt('updated_at', segmentReportTimestamp)
+        .order('updated_at', { ascending: true });
+      messagesData = result.data || [];
+      messagesError = result.error;
+    } else {
+      // Regular room: fetch all messages
+      const result = await supabaseAdmin
+        .from('memories')
+        .select('id, content, updated_at')
+        .eq('room_id', roomId)
+        .order('updated_at', { ascending: true });
+      messagesData = result.data || [];
+      messagesError = result.error;
+    }
     
     if (messagesError) {
       console.error('API: Error fetching messages:', messagesError);
@@ -107,7 +146,7 @@ export async function GET(request: Request) {
     // Use the account name or a default placeholder
     const accountName = accountData?.name || roomData.account_id.substring(0, 8);
     // Use real email if available, otherwise create a placeholder
-    const accountEmail = emailData?.email || accountName + '@example.com';
+    const accountEmail = emailData?.email || `${accountName}@example.com`;
     
     console.log('API: Using account name:', accountName);
     console.log('API: Using account email:', accountEmail);
@@ -116,7 +155,7 @@ export async function GET(request: Request) {
     
     // Map messages to the expected format but set a default role since it doesn't exist in DB
     // Also properly handle the JSONB content field
-    const messages = messagesData ? messagesData.map(msg => {
+    let messages = messagesData ? messagesData.map(msg => {
       // Log the content for debugging
       console.log('API: Message content structure:', JSON.stringify(msg.content, null, 2));
       
@@ -138,11 +177,11 @@ export async function GET(request: Request) {
         
         // Replace each tool name with the backtick-wrapped version
         let formattedText = text;
-        toolNames.forEach(tool => {
+        for (const tool of toolNames ?? []) {
           // Use regex to match the tool name as a whole word
-          const regex = new RegExp(`\\b${tool}\\b`, 'g');
+          const regex = new RegExp(`\b${tool}\b`, 'g');
           formattedText = formattedText.replace(regex, `\`${tool}\``);
-        });
+        }
         
         return formattedText;
       };
@@ -222,6 +261,21 @@ export async function GET(request: Request) {
         created_at: msg.updated_at // Using updated_at as the timestamp
       };
     }) : [];
+    
+    // If this is a segment room, prepend the segment report as a special message
+    if (segmentReport && segmentReportTimestamp) {
+      messages = [
+        {
+          id: 'segment-report',
+          room_id: roomId,
+          content: `${segmentReport.report}${segmentReport.next_steps ? `\n\nNext Steps:\n${segmentReport.next_steps}` : ''}`,
+          role: 'report',
+          reasoning: '',
+          created_at: segmentReportTimestamp
+        },
+        ...messages
+      ];
+    }
     
     // Build the conversation detail
     const conversationDetail = {
