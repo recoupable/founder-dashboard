@@ -5,7 +5,8 @@ import { conversationService, ConversationListItem, ConversationDetail, Conversa
 import ReactMarkdown from 'react-markdown';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
-import { MagnifyingGlassIcon, CogIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, CogIcon, CalendarIcon, ChatBubbleLeftRightIcon, DocumentChartBarIcon } from '@heroicons/react/24/outline';
+import { createClient } from '@supabase/supabase-js';
 
 // Custom Switch component with proper TypeScript types
 interface SwitchProps {
@@ -53,6 +54,9 @@ export default function ConversationsPage() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
   
+  // Segment report counts state
+  const [segmentReportCounts, setSegmentReportCounts] = useState({ today: 0, week: 0, month: 0, prevDay: 0, prevWeek: 0, prevMonth: 0 });
+
   // Listen for data source updates
   useEffect(() => {
     const handleDataSourceUpdate = (event: CustomEvent) => {
@@ -248,21 +252,154 @@ export default function ConversationsPage() {
     }
   };
 
-  // Filter conversations based on test emails
-  const filteredConversations = excludeTestEmails 
-    ? conversations.filter(conv => {
-        // Exclude emails that are in the test emails list
-        if (testEmails.includes(conv.account_email)) return false;
-        
-        // Automatically exclude emails containing "@example.com"
-        if (conv.account_email.includes('@example.com')) return false;
-        
-        // Automatically exclude emails containing a "+"
-        if (conv.account_email.includes('+')) return false;
-        
+  // Only filter out test emails for the summary cards
+  const testEmailFilteredConversations = conversations.filter(conv => {
+    if (testEmails.includes(conv.account_email)) return false;
+    if (conv.account_email.includes('@example.com')) return false;
+    if (conv.account_email.includes('+')) return false;
+    return true;
+  });
+
+  // Filter conversations based on time filter and test emails
+  const timeFilteredConversations = conversations.filter(conv => {
+    if (timeFilter === 'All Time') return true;
+    const now = new Date();
+    const filterDate = new Date();
+    switch (timeFilter) {
+      case 'Last 7 Days':
+        filterDate.setDate(now.getDate() - 7);
+        break;
+      case 'Last 30 Days':
+        filterDate.setDate(now.getDate() - 30);
+        break;
+      case 'Last 90 Days':
+        filterDate.setDate(now.getDate() - 90);
+        break;
+      default:
         return true;
-      }) 
-    : conversations;
+    }
+    return new Date(conv.created_at) >= filterDate;
+  });
+
+  const filteredConversations = excludeTestEmails
+    ? timeFilteredConversations.filter(conv => {
+        if (testEmails.includes(conv.account_email)) return false;
+        if (conv.account_email.includes('@example.com')) return false;
+        if (conv.account_email.includes('+')) return false;
+        return true;
+      })
+    : timeFilteredConversations;
+
+  useEffect(() => {
+    async function fetchSegmentReportCounts() {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !supabaseAnonKey) {
+        console.error('Supabase environment variables are not set.');
+        return;
+      }
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfYesterday = new Date(startOfToday);
+      startOfYesterday.setDate(startOfToday.getDate() - 1);
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      const startOfPrevWeek = new Date(startOfWeek);
+      startOfPrevWeek.setDate(startOfWeek.getDate() - 7);
+      const endOfPrevWeek = new Date(startOfWeek);
+      endOfPrevWeek.setMilliseconds(-1);
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+      // Log date ranges for debugging
+      console.log('Segment Report Date Ranges:');
+      console.log('Today:', startOfToday.toISOString());
+      console.log('Yesterday:', startOfYesterday.toISOString(), 'to', startOfToday.toISOString());
+      console.log('This Week:', startOfWeek.toISOString());
+      console.log('Prev Week:', startOfPrevWeek.toISOString(), 'to', startOfWeek.toISOString());
+      console.log('This Month:', startOfMonth.toISOString());
+      console.log('Prev Month:', startOfPrevMonth.toISOString(), 'to', startOfMonth.toISOString());
+
+      // Today
+      const todayRes = await supabase
+        .from('segment_reports')
+        .select('id', { count: 'exact', head: true })
+        .gte('updated_at', startOfToday.toISOString());
+      const todayCount = todayRes.count;
+      console.log('[SegmentReports] Today query result:', todayRes);
+      // Yesterday
+      const prevDayRes = await supabase
+        .from('segment_reports')
+        .select('id', { count: 'exact', head: true })
+        .gte('updated_at', startOfYesterday.toISOString())
+        .lt('updated_at', startOfToday.toISOString());
+      const prevDayCount = prevDayRes.count;
+      console.log('[SegmentReports] Yesterday query result:', prevDayRes);
+      // This week
+      const weekRes = await supabase
+        .from('segment_reports')
+        .select('id', { count: 'exact', head: true })
+        .gte('updated_at', startOfWeek.toISOString());
+      const weekCount = weekRes.count;
+      console.log('[SegmentReports] This week query result:', weekRes);
+      // Previous week
+      const prevWeekRes = await supabase
+        .from('segment_reports')
+        .select('id', { count: 'exact', head: true })
+        .gte('updated_at', startOfPrevWeek.toISOString())
+        .lt('updated_at', startOfWeek.toISOString());
+      const prevWeekCount = prevWeekRes.count;
+      console.log('[SegmentReports] Prev week query result:', prevWeekRes);
+      // This month
+      const monthRes = await supabase
+        .from('segment_reports')
+        .select('id', { count: 'exact', head: true })
+        .gte('updated_at', startOfMonth.toISOString());
+      const monthCount = monthRes.count;
+      console.log('[SegmentReports] This month query result:', monthRes);
+      // Previous month
+      const prevMonthRes = await supabase
+        .from('segment_reports')
+        .select('id', { count: 'exact', head: true })
+        .gte('updated_at', startOfPrevMonth.toISOString())
+        .lt('updated_at', startOfMonth.toISOString());
+      const prevMonthCount = prevMonthRes.count;
+      console.log('[SegmentReports] Prev month query result:', prevMonthRes);
+
+      // Log final values for percent change
+      console.log('[SegmentReports] Final counts for percent change:', {
+        today: todayCount, prevDay: prevDayCount,
+        week: weekCount, prevWeek: prevWeekCount,
+        month: monthCount, prevMonth: prevMonthCount
+      });
+
+      setSegmentReportCounts({
+        today: todayCount || 0,
+        week: weekCount || 0,
+        month: monthCount || 0,
+        prevDay: prevDayCount || 0,
+        prevWeek: prevWeekCount || 0,
+        prevMonth: prevMonthCount || 0,
+      });
+    }
+    fetchSegmentReportCounts();
+  }, []);
+
+  // Helper for percent change
+  function getPercentChange(current: number, previous: number) {
+    if (previous === 0 && current > 0) return 'N/A';
+    if (previous === 0 && current === 0) return '0%';
+    return `${(((current - previous) / previous) * 100).toFixed(0)}%`;
+  }
+  function getArrowAndColor(current: number, previous: number) {
+    if (previous === 0) return { arrow: '', color: 'text-gray-400' };
+    if (current > previous) return { arrow: '▲', color: 'text-green-600' };
+    if (current < previous) return { arrow: '▼', color: 'text-red-600' };
+    return { arrow: '', color: 'text-gray-500' };
+  }
 
   return (
     <main className="p-4 sm:p-8">
@@ -339,6 +476,314 @@ export default function ConversationsPage() {
 
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-6">User Conversations</h1>
+
+        {/* Summary Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+          {/* Conversations Today */}
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
+            <div className="flex items-center mb-2">
+              <span className="text-blue-600 mr-2">
+                <ChatBubbleLeftRightIcon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-semibold text-blue-700">Conversations Today</span>
+            </div>
+            <div className="text-4xl font-extrabold text-blue-900 mb-1">{(() => {
+              const now = new Date();
+              const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              return testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfToday).length;
+            })()}</div>
+            <div className="text-xs text-blue-500 mb-2">Created since midnight</div>
+          </div>
+          {/* Conversations This Week */}
+          <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
+            <div className="flex items-center mb-2">
+              <span className="text-green-600 mr-2">
+                <CalendarIcon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-semibold text-green-700">Conversations This Week</span>
+            </div>
+            <div className="text-4xl font-extrabold text-green-900 mb-1">{(() => {
+              const now = new Date();
+              const startOfWeek = new Date(now);
+              startOfWeek.setDate(now.getDate() - now.getDay());
+              startOfWeek.setHours(0, 0, 0, 0);
+              return testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfWeek).length;
+            })()}</div>
+            <div className="text-xs text-green-500 mb-2">Since Sunday</div>
+            <div className="flex items-center text-xs">
+              {(() => {
+                const now = new Date();
+                const startOfWeek = new Date(now);
+                startOfWeek.setDate(now.getDate() - now.getDay());
+                startOfWeek.setHours(0, 0, 0, 0);
+                const prevWeekStart = new Date(startOfWeek);
+                prevWeekStart.setDate(startOfWeek.getDate() - 7);
+                const prevWeekEnd = new Date(startOfWeek.getTime() - 1);
+                const curr = testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfWeek).length;
+                const prev = testEmailFilteredConversations.filter(conv => {
+                  const created = new Date(conv.created_at);
+                  return created >= prevWeekStart && created <= prevWeekEnd;
+                }).length;
+                let percent = null;
+                if (prev === 0 && curr > 0) percent = 'N/A';
+                else if (prev === 0 && curr === 0) percent = '0%';
+                else percent = `${(((curr - prev) / prev) * 100).toFixed(0)}%`;
+                const isUp = prev !== 0 && curr > prev;
+                const isDown = prev !== 0 && curr < prev;
+                return (
+                  <>
+                    {isUp && <span className="text-green-600 font-bold mr-1">▲</span>}
+                    {isDown && <span className="text-red-600 font-bold mr-1">▼</span>}
+                    <span className={isUp ? 'text-green-600 font-bold' : isDown ? 'text-red-600 font-bold' : 'text-gray-500'}>{percent}</span>
+                    <span className="ml-1 text-gray-400">from last week</span>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+          {/* Conversations This Month */}
+          <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 border border-yellow-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
+            <div className="flex items-center mb-2">
+              <span className="text-yellow-600 mr-2">
+                <CalendarIcon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-semibold text-yellow-700">Conversations This Month</span>
+            </div>
+            <div className="text-4xl font-extrabold text-yellow-900 mb-1">{(() => {
+              const now = new Date();
+              const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+              return testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfMonth).length;
+            })()}</div>
+            <div className="text-xs text-yellow-500 mb-2">Since 1st of month</div>
+            <div className="flex items-center text-xs">
+              {(() => {
+                const now = new Date();
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+                const curr = testEmailFilteredConversations.filter(conv => new Date(conv.created_at) >= startOfMonth).length;
+                const prev = testEmailFilteredConversations.filter(conv => {
+                  const created = new Date(conv.created_at);
+                  return created >= prevMonth && created <= prevMonthEnd;
+                }).length;
+                let percent = null;
+                if (prev === 0 && curr > 0) percent = 'N/A';
+                else if (prev === 0 && curr === 0) percent = '0%';
+                else percent = `${(((curr - prev) / prev) * 100).toFixed(0)}%`;
+                const isUp = prev !== 0 && curr > prev;
+                const isDown = prev !== 0 && curr < prev;
+                return (
+                  <>
+                    {isUp && <span className="text-green-600 font-bold mr-1">▲</span>}
+                    {isDown && <span className="text-red-600 font-bold mr-1">▼</span>}
+                    <span className={isUp ? 'text-green-600 font-bold' : isDown ? 'text-red-600 font-bold' : 'text-gray-500'}>{percent}</span>
+                    <span className="ml-1 text-gray-400">from last month</span>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+          {/* Segment Reports Today */}
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
+            <div className="flex items-center mb-2">
+              <span className="text-purple-600 mr-2">
+                <DocumentChartBarIcon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-semibold text-purple-700">Segment Reports Today</span>
+            </div>
+            <div className="text-4xl font-extrabold text-purple-900 mb-1">{segmentReportCounts.today}</div>
+            <div className="text-xs text-purple-500 mb-2">Created since midnight</div>
+            <div className="flex items-center text-xs">
+              {getPercentChange(segmentReportCounts.today, segmentReportCounts.prevDay) === 'N/A' ? (
+                <span className="text-gray-400">N/A</span>
+              ) : (
+                <>
+                  {getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).arrow && (
+                    <span className={`${getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).color} font-bold mr-1`}>
+                      {getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).arrow}
+                    </span>
+                  )}
+                  <span className={`${getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).color} font-bold`}>
+                    {getPercentChange(segmentReportCounts.today, segmentReportCounts.prevDay)}
+                  </span>
+                  <span className="ml-1 text-gray-400">from yesterday</span>
+                </>
+              )}
+            </div>
+          </div>
+          {/* Segment Reports This Week */}
+          <div className="bg-gradient-to-br from-pink-50 to-pink-100 border border-pink-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
+            <div className="flex items-center mb-2">
+              <span className="text-pink-600 mr-2">
+                <DocumentChartBarIcon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-semibold text-pink-700">Segment Reports This Week</span>
+            </div>
+            <div className="text-4xl font-extrabold text-pink-900 mb-1">{segmentReportCounts.week}</div>
+            <div className="text-xs text-pink-500 mb-2">Since Sunday</div>
+            <div className="flex items-center text-xs">
+              {getPercentChange(segmentReportCounts.week, segmentReportCounts.prevWeek) === 'N/A' ? (
+                <span className="text-gray-400">N/A</span>
+              ) : (
+                <>
+                  {getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).arrow && (
+                    <span className={`${getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).color} font-bold mr-1`}>
+                      {getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).arrow}
+                    </span>
+                  )}
+                  <span className={`${getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).color} font-bold`}>
+                    {getPercentChange(segmentReportCounts.week, segmentReportCounts.prevWeek)}
+                  </span>
+                  <span className="ml-1 text-gray-400">from last week</span>
+                </>
+              )}
+            </div>
+          </div>
+          {/* Segment Reports This Month */}
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
+            <div className="flex items-center mb-2">
+              <span className="text-orange-600 mr-2">
+                <DocumentChartBarIcon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-semibold text-orange-700">Segment Reports This Month</span>
+            </div>
+            <div className="text-4xl font-extrabold text-orange-900 mb-1">{segmentReportCounts.month}</div>
+            <div className="text-xs text-orange-500 mb-2">Since 1st of month</div>
+            <div className="flex items-center text-xs">
+              {getPercentChange(segmentReportCounts.month, segmentReportCounts.prevMonth) === 'N/A' ? (
+                <span className="text-gray-400">N/A</span>
+              ) : (
+                <>
+                  {getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).arrow && (
+                    <span className={`${getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).color} font-bold mr-1`}>
+                      {getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).arrow}
+                    </span>
+                  )}
+                  <span className={`${getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).color} font-bold`}>
+                    {getPercentChange(segmentReportCounts.month, segmentReportCounts.prevMonth)}
+                  </span>
+                  <span className="ml-1 text-gray-400">from last month</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        {/* User Leaderboard (Monthly) */}
+        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
+          <h2 className="text-2xl font-bold mb-4">User Leaderboard (This Month)</h2>
+          {(() => {
+            // Get start of current month
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            // Helper: filter out test emails
+            const isNotTestEmail = (email) => {
+              if (!email) return false;
+              if (testEmails.includes(email)) return false;
+              if (email.includes('@example.com')) return false;
+              if (email.includes('+')) return false;
+              return true;
+            };
+            // 1. Aggregate rooms created this month by user
+            const roomsByUser = {};
+            for (const conv of testEmailFilteredConversations) {
+              const email = conv.account_email;
+              if (!isNotTestEmail(email)) continue;
+              const created = new Date(conv.created_at);
+              if (created >= startOfMonth) {
+                roomsByUser[email] = (roomsByUser[email] || 0) + 1;
+              }
+            }
+            // 2. Aggregate messages sent this month by user
+            const messagesByUser = {};
+            for (const conv of conversations) {
+              const email = conv.account_email;
+              if (!isNotTestEmail(email)) continue;
+              if (!conv.detail || !conv.detail.messages) continue;
+              for (const msg of conv.detail.messages) {
+                if (msg.role === 'user') {
+                  const created = new Date(msg.created_at);
+                  if (created >= startOfMonth) {
+                    messagesByUser[email] = (messagesByUser[email] || 0) + 1;
+                  }
+                }
+              }
+            }
+            // 3. Aggregate segment reports generated this month by user
+            // We'll need to fetch segment_reports for this month
+            // For now, assume we have a segmentReports array in state (to be fetched in useEffect)
+            // Example: [{ id, account_email, created_at }]
+            // We'll use a placeholder if not available
+            const [segmentReports, setSegmentReports] = React.useState([]);
+            React.useEffect(() => {
+              async function fetchReports() {
+                const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+                const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+                if (!supabaseUrl || !supabaseAnonKey) return;
+                const supabase = createClient(supabaseUrl, supabaseAnonKey);
+                const { data, error } = await supabase
+                  .from('segment_reports')
+                  .select('id, account_email, created_at');
+                if (!error && data) setSegmentReports(data);
+              }
+              fetchReports();
+            }, []);
+            const reportsByUser = {};
+            for (const report of segmentReports) {
+              const email = report.account_email;
+              if (!isNotTestEmail(email)) continue;
+              const created = new Date(report.created_at);
+              if (created >= startOfMonth) {
+                reportsByUser[email] = (reportsByUser[email] || 0) + 1;
+              }
+            }
+            // 4. Combine scores
+            const allUsers = new Set([
+              ...Object.keys(roomsByUser),
+              ...Object.keys(messagesByUser),
+              ...Object.keys(reportsByUser)
+            ]);
+            const leaderboard = Array.from(allUsers).map(email => {
+              return {
+                email,
+                rooms: roomsByUser[email] || 0,
+                messages: messagesByUser[email] || 0,
+                reports: reportsByUser[email] || 0,
+                score: (roomsByUser[email] || 0) + (messagesByUser[email] || 0) + (reportsByUser[email] || 0)
+              };
+            }).filter(u => u.score > 0);
+            leaderboard.sort((a, b) => b.score - a.score);
+            return (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="px-4 py-2 text-left font-semibold">User Email</th>
+                      <th className="px-4 py-2 text-center font-semibold">Score</th>
+                      <th className="px-4 py-2 text-center font-semibold">Messages</th>
+                      <th className="px-4 py-2 text-center font-semibold">Segment Reports</th>
+                      <th className="px-4 py-2 text-center font-semibold">Rooms Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leaderboard.map((user, idx) => (
+                      <tr key={user.email} className={idx < 3 ? 'bg-yellow-50' : ''}>
+                        <td className="px-4 py-2 font-mono text-xs sm:text-sm">{user.email}</td>
+                        <td className="px-4 py-2 text-center font-bold text-lg">{user.score}</td>
+                        <td className="px-4 py-2 text-center">{user.messages}</td>
+                        <td className="px-4 py-2 text-center">{user.reports}</td>
+                        <td className="px-4 py-2 text-center">{user.rooms}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {leaderboard.length === 0 && (
+                  <div className="text-center text-gray-400 py-8">No user activity this month yet.</div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
         
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Left panel - Conversation List */}
@@ -615,39 +1060,54 @@ export default function ConversationsPage() {
                 
                 <div className="overflow-y-auto max-h-[calc(100vh-250px)] space-y-4">
                   {conversationDetail.messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`p-3 rounded-lg max-w-[85%] ${
-                        message.role === 'user'
-                          ? 'bg-blue-50 ml-auto'
-                          : 'bg-white border'
-                      }`}
-                    >
-                      <div className="text-gray-800 markdown-content">
-                        {message.content.includes('<') && message.content.includes('</') ? (
-                          // Content appears to be HTML, render it safely
-                          parse(DOMPurify.sanitize(message.content))
-                        ) : (
-                          // Regular text or markdown, use ReactMarkdown
-                          <ReactMarkdown>{message.content}</ReactMarkdown>
-                        )}
+                    message.role === 'report' ? (
+                      <div
+                        key={message.id}
+                        className="p-4 bg-yellow-100 border-l-4 border-yellow-400 rounded shadow-sm mb-4"
+                      >
+                        <div className="font-bold mb-2 text-yellow-800">Segment Report</div>
+                        <div className="whitespace-pre-line text-gray-800">{message.content}</div>
+                        <div className="text-xs text-gray-500 mt-2 text-right">
+                          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
+                          {' '}
+                          {new Date(message.created_at).toLocaleDateString()}
+                        </div>
                       </div>
-                      {message.reasoning && message.role === 'assistant' && (
-                        <details className="mt-2 text-sm">
-                          <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
-                            View reasoning
-                          </summary>
-                          <div className="mt-1 p-2 bg-gray-50 rounded border text-gray-700 whitespace-pre-wrap">
-                            <ReactMarkdown>{message.reasoning}</ReactMarkdown>
-                          </div>
-                        </details>
-                      )}
-                      <p className="text-xs text-gray-500 mt-1 text-right">
-                        {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
-                        {' '}
-                        {new Date(message.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
+                    ) : (
+                      <div
+                        key={message.id}
+                        className={`p-3 rounded-lg max-w-[85%] ${
+                          message.role === 'user'
+                            ? 'bg-blue-50 ml-auto'
+                            : 'bg-white border'
+                        }`}
+                      >
+                        <div className="text-gray-800 markdown-content">
+                          {message.content.includes('<') && message.content.includes('</') ? (
+                            // Content appears to be HTML, render it safely
+                            parse(DOMPurify.sanitize(message.content))
+                          ) : (
+                            // Regular text or markdown, use ReactMarkdown
+                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                          )}
+                        </div>
+                        {message.reasoning && message.role === 'assistant' && (
+                          <details className="mt-2 text-sm">
+                            <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
+                              View reasoning
+                            </summary>
+                            <div className="mt-1 p-2 bg-gray-50 rounded border text-gray-700 whitespace-pre-wrap">
+                              <ReactMarkdown>{message.reasoning}</ReactMarkdown>
+                            </div>
+                          </details>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1 text-right">
+                          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
+                          {' '}
+                          {new Date(message.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    )
                   ))}
                 </div>
               </>

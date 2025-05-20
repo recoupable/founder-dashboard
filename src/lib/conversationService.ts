@@ -34,7 +34,7 @@ export interface Message {
   room_id: string;
   content: string;
   reasoning?: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'report';
   created_at: string;
 }
 
