@@ -1,18 +1,25 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const start_date = searchParams.get('start_date');
+  const end_date = searchParams.get('end_date');
+
   const supabase = supabaseAdmin;
 
-  // Get the first day of the current month
+  // Default to start of month if not provided
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const start = start_date || defaultStart;
+  const end = end_date || now.toISOString();
 
-  // Query for segment report counts by user using the topic filter
+  // Query for segment report counts by user using the topic filter and date range
   const { data, error } = await supabase
     .from('rooms')
     .select('account_id, updated_at, topic')
-    .gte('updated_at', startOfMonth);
+    .gte('updated_at', start)
+    .lte('updated_at', end);
 
   // Debug log the fetched rooms data
   console.log('Rooms data:', data);

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
-import { PrivyClient, User } from '@privy-io/server-auth'
+import { PrivyClient } from '@privy-io/server-auth'
+import type { User } from '@privy-io/server-auth'
+import { supabaseAdmin } from '@/lib/supabase'
 
 if (!process.env.PRIVY_API_KEY || !process.env.NEXT_PUBLIC_PRIVY_APP_ID) {
   throw new Error('Missing Privy environment variables')
@@ -154,6 +156,7 @@ function formatDateLabel(date: Date, timeframe: string): string {
     case 'daily':
       return date.toLocaleDateString('default', { month: 'short', day: 'numeric' });
     case 'weekly':
+    case 'allTimeWeekly':
       return `${date.toLocaleDateString('default', { month: 'short', day: 'numeric' })}`;
     case 'monthly':
       return date.toLocaleDateString('default', { month: 'short', year: '2-digit' });
@@ -165,10 +168,40 @@ function formatDateLabel(date: Date, timeframe: string): string {
 }
 
 // Helper function to get date ranges based on timeframe
-function getDateRanges(timeframe: string): { dates: Date[], intervals: { start: Date, end: Date }[] } {
+function getDateRanges(timeframe: string, minDateOverride?: Date): { dates: Date[], intervals: { start: Date, end: Date }[] } {
   const now = new Date();
   const dates: Date[] = [];
   const intervals: { start: Date, end: Date }[] = [];
+
+  if ((timeframe === 'allTime' || timeframe === 'allTimeWeekly') && minDateOverride) {
+    if (timeframe === 'allTime') {
+      const d = new Date(minDateOverride.getFullYear(), minDateOverride.getMonth(), 1);
+      while (d <= now) {
+        dates.push(new Date(d));
+        const start = new Date(d);
+        const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+        intervals.push({ start, end });
+        d.setMonth(d.getMonth() + 1);
+      }
+      return { dates, intervals };
+    }
+    if (timeframe === 'allTimeWeekly') {
+      let currentWeekStart = new Date(minDateOverride);
+      currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+      currentWeekStart.setHours(0, 0, 0, 0);
+
+      while (currentWeekStart <= now) {
+        dates.push(new Date(currentWeekStart));
+        const start = new Date(currentWeekStart);
+        const end = new Date(currentWeekStart);
+        end.setDate(currentWeekStart.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+        intervals.push({ start, end: end > now ? now : end });
+        currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+      }
+      return { dates, intervals };
+    }
+  }
 
   switch (timeframe) {
     case 'daily':
@@ -236,65 +269,224 @@ function getDateRanges(timeframe: string): { dates: Date[], intervals: { start: 
   return { dates, intervals };
 }
 
+// Helper to format a date as YYYY-MM-DD
+function formatDateKey(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+// Helper to get the start of the week (Sunday)
+function getWeekStart(date: Date): string {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay());
+  d.setHours(0, 0, 0, 0);
+  return formatDateKey(d);
+}
+
+// Helper to get the start of the month
+function getMonthStart(date: Date): string {
+  const d = new Date(date.getFullYear(), date.getMonth(), 1);
+  return formatDateKey(d);
+}
+
 export async function GET(request: Request) {
   try {
     console.log('API: Fetching metrics...');
-    
-    // Get timeframe from query parameters
     const url = new URL(request.url);
     const timeframe = url.searchParams.get('timeframe') || 'monthly';
+    const excludeTest = url.searchParams.get('excludeTest') === 'true';
     
-    // Get date ranges based on timeframe
-    const { dates, intervals } = getDateRanges(timeframe);
-
-    // Check if we have cached metrics for this timeframe
-    const cachedMetrics = getCachedMetrics(timeframe);
-    let activeUsersData: number[];
-
-    if (cachedMetrics) {
-      activeUsersData = cachedMetrics;
-    } else {
-      // Get active users data for each interval
-      activeUsersData = await Promise.all(
-        intervals.map(interval => getActiveUsersForDateRange(interval.start, interval.end))
-      );
+    let minDateOverride: Date | undefined = undefined;
+    if (timeframe === 'allTime' || timeframe === 'allTimeWeekly') { 
+      const { data: minData } = await supabaseAdmin
+        .from('memories')
+        .select('updated_at')
+        .order('updated_at', { ascending: true })
+        .limit(1)
+        .single();
       
-      // Cache the results
-      cacheMetrics(timeframe, activeUsersData);
+      if (minData?.updated_at) { 
+        const earliestDate = new Date(minData.updated_at);
+        if (timeframe === 'allTime') {
+          minDateOverride = new Date(earliestDate.getFullYear(), earliestDate.getMonth(), 1);
+        } else {
+          minDateOverride = earliestDate; 
+        }
+      }
+    }
+    
+    // Get test emails to filter (same as leaderboard)
+    const { data: testEmailsData } = await supabaseAdmin
+      .from('test_emails')
+      .select('email');
+    
+    const testEmails = testEmailsData ? testEmailsData.map(te => te.email) : [];
+    console.log(`Test emails from test_emails table: ${testEmails.length}`);
+    
+    // Helper function to check if email should be excluded (same as leaderboard)
+    const isNotTestEmail = (email: string): boolean => {
+      if (!email) return false;
+      if (testEmails.includes(email)) return false;
+      if (email.includes('@example.com')) return false;
+      if (email.includes('+')) return false;
+      return true;
+    };
+    
+    // Get date ranges based on timeframe and minDateOverride
+    const { dates, intervals } = getDateRanges(timeframe, minDateOverride);
+    
+    // Build date keys for each interval
+    let dateKeys: string[] = [];
+    if (timeframe === 'daily') {
+      dateKeys = dates.map(formatDateKey);
+    } else if (timeframe === 'weekly' || timeframe === 'allTimeWeekly') { 
+      dateKeys = dates.map(getWeekStart);
+    } else if (timeframe === 'monthly' || timeframe === 'allTime') {
+      dateKeys = dates.map(getMonthStart);
+    }
+    
+    // Get min/max for the query
+    const minDate = intervals[0].start;
+    const maxDate = intervals[intervals.length - 1].end;
+    
+    console.log('DEBUG minDate:', minDate.toISOString(), 'maxDate:', maxDate.toISOString());
+    console.log('DEBUG dateKeys:', dateKeys);
+    console.log('DEBUG excludeTest:', excludeTest);
+    
+    // Initialize data arrays
+    const messagesData: number[] = new Array(dateKeys.length).fill(0);
+    const reportsData: number[] = new Array(dateKeys.length).fill(0);
+    
+    // For each interval, we need to get message counts by email and filter
+    for (let i = 0; i < intervals.length; i++) {
+      const { start, end } = intervals[i];
+      
+      // Get message counts grouped by email for this interval
+      // We'll use the same RPC function as the leaderboard
+      const { data: messageCounts, error: messageError } = await supabaseAdmin
+        .rpc('get_message_counts_by_user', { 
+          start_date: start.toISOString(), 
+          end_date: end.toISOString() 
+        });
+      
+      if (messageError) {
+        console.error(`Error fetching message counts for interval ${i}:`, messageError);
+        messagesData[i] = 0;
+      } else if (messageCounts) {
+        // Filter and sum the counts (same as leaderboard)
+        const totalMessages = messageCounts
+          .filter((row: { account_email: string, message_count: number }) => 
+            isNotTestEmail(row.account_email)
+          )
+          .reduce((sum: number, row: { account_email: string, message_count: number }) => 
+            sum + row.message_count, 0
+          );
+        
+        messagesData[i] = totalMessages;
+        console.log(`Interval ${i}: Total user messages (excluding test emails): ${totalMessages}`);
+      }
+      
+      // For segment reports, count rooms with topics starting with "segment:"
+      const { data: roomsData } = await supabaseAdmin
+        .from('rooms')
+        .select('account_id, topic')
+        .gte('updated_at', start.toISOString())
+        .lt('updated_at', end.toISOString());
+      
+      if (roomsData) {
+        // Get emails for these accounts
+        const accountIds = [...new Set(roomsData.map(r => r.account_id))];
+        const { data: emailsData } = await supabaseAdmin
+          .from('account_emails')
+          .select('account_id, email')
+          .in('account_id', accountIds);
+        
+        // Count segment reports (rooms with topic starting with "segment:")
+        let segmentReportCount = 0;
+        for (const room of roomsData) {
+          if (room.topic?.toLowerCase()?.startsWith?.('segment:')) { 
+            const email = emailsData?.find(e => e.account_id === room.account_id)?.email;
+            if (email && isNotTestEmail(email)) {
+              segmentReportCount++;
+            }
+          }
+        }
+        
+        reportsData[i] = segmentReportCount;
+        console.log(`Interval ${i}: Segment reports (excluding test emails): ${segmentReportCount}`);
+      } else {
+        reportsData[i] = 0;
+      }
+    }
+    
+    console.log('Messages Data:', messagesData);
+    console.log('Reports Data:', reportsData);
+    
+    // Fetch chart annotations (events)
+    let eventAnnotations = [];
+    try {
+      const { data: annotationData, error: annotationError } = await supabaseAdmin
+        .from('founder_dashboard_chart_annotations')
+        .select('*')
+        .gte('event_date', minDate.toISOString().split('T')[0]) // Use YYYY-MM-DD for comparison with DATE type
+        .lte('event_date', maxDate.toISOString().split('T')[0]) // Use YYYY-MM-DD for comparison with DATE type
+        .eq('chart_type', 'messages_reports_over_time') // Filter by chart_type
+        .order('event_date', { ascending: true });
+
+      if (annotationError) {
+        console.error('Error fetching chart event annotations:', annotationError);
+      } else {
+        eventAnnotations = annotationData || [];
+      }
+    } catch (e) {
+      console.error('Exception fetching chart event annotations:', e);
     }
 
-    // Get current paying customers
-    const currentPayingCustomers = 0;
-    console.log('API: Current paying customers:', currentPayingCustomers);
+    // Generate daily marker annotations (for faint grid lines)
+    const dailyMarkerAnnotations = [];
+    if (intervals.length > 0) {
+        let currentDate = new Date(minDate); // minDate is the overall start of the chart
+        const overallEndDate = new Date(maxDate); // maxDate is the overall end of the chart
 
-    // Format labels based on timeframe
+        while (currentDate <= overallEndDate) {
+            dailyMarkerAnnotations.push({
+                type: 'line',
+                scaleID: 'x',
+                value: currentDate.toISOString(), // Use ISO string for time scale
+                borderColor: 'rgba(200, 200, 200, 0.3)', // Very faint gray
+                borderWidth: 1,
+                // No label for these grid lines
+            });
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+    }
+    
+    // Combine event annotations and daily markers
+    const allAnnotations = [...dailyMarkerAnnotations, ...eventAnnotations];
+
+    // Format labels for major ticks (still weekly)
     const labels = dates.map(date => formatDateLabel(date, timeframe));
-
-    // Generate paying customers data (steady growth)
-    const payingCustomersData = Array(dates.length).fill(0).map((_, i) => {
-      const factor = (dates.length - 1 - i) / (dates.length - 1);
-      return Math.max(1, Math.floor(currentPayingCustomers * (1 - factor * 0.5)));
-    });
-
+    const rawDates = dates.map(date => date.toISOString());
+    
     const response = {
-      labels,
+      labels, // These are for the major weekly ticks
+      rawDates, 
       datasets: [
         {
-          label: 'Paying Customers',
-          data: payingCustomersData,
-          borderColor: 'rgb(59, 130, 246)',
-          backgroundColor: 'rgba(59, 130, 246, 0.5)',
+          label: 'Messages Sent',
+          data: messagesData,
+          borderColor: 'rgb(99, 102, 241)',
+          backgroundColor: 'rgba(99, 102, 241, 0.2)',
         },
         {
-          label: 'Active Users',
-          data: activeUsersData,
-          borderColor: 'rgb(34, 197, 94)',
-          backgroundColor: 'rgba(34, 197, 94, 0.5)',
+          label: 'Segment Reports',
+          data: reportsData,
+          borderColor: 'rgb(251, 191, 36)',
+          backgroundColor: 'rgba(251, 191, 36, 0.2)',
         }
-      ]
+      ],
+      annotations: allAnnotations // Send combined annotations
     };
-
-    console.log('API: Sending response:', response);
+    
     return NextResponse.json(response);
   } catch (error) {
     console.error('API Error fetching chart data:', error);

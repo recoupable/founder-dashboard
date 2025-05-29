@@ -1,4 +1,166 @@
-# Conversations Tab: Deep Dive & Technical Breakdown
+# CEO Dashboard: Comprehensive Technical Breakdown
+
+## 0. Application Overview
+The CEO Dashboard is a Next.js application designed to provide key business insights through various data visualizations and management tools. It features a main dashboard with financial and sales pipeline metrics, a detailed conversations browser, and administrative tools for managing underlying database structures. The application heavily utilizes Supabase for its backend database, data storage, and potentially authentication, with a robust service layer in `src/lib/` for interacting with data and managing business logic. It is built with TypeScript and uses Tailwind CSS for styling.
+
+**Key Technologies & Patterns:**
+- Next.js (App Router)
+- React (with Hooks for state management)
+- TypeScript
+- Supabase (Database, Storage, potentially Auth, RPC functions)
+- Tailwind CSS
+- Client-side components (`"use client"`) for interactive UIs
+- Server-side data fetching (e.g., in `src/app/page.tsx`)
+- API Routes (in `src/app/api/`)
+- Environment variables for configuration
+- Utility functions for common tasks (formatting, calculations)
+- Mock data for development and fallbacks
+- Programmatic database schema management for some features
+
+**Core Application Structure (`src/`):**
+- `app/`: Contains pages, layouts, and API routes.
+  - `page.tsx`: Main dashboard page.
+  - `layout.tsx`: Root layout for the entire application.
+  - `conversations/`: Feature for browsing and managing conversations.
+  - `sales-pipeline/`: (Redirects to main dashboard) Formerly a separate page for sales pipeline.
+  - `pipeline-admin/`: Admin page for managing the sales pipeline database table.
+  - `api/`: Houses all backend API endpoints.
+    - `chart-data/`: API for chart visualizations.
+    - `conversations/`: API for conversation data and leaderboard.
+    - `customers/`: API for customer data (e.g., updates).
+    - `test-emails/`: API for managing test email lists.
+    - `metrics/`, `test-connections/`, `add-customer/`: Other API endpoints.
+- `components/`: Reusable UI components (e.g., Navigation, ConnectionStatus, Charts).
+- `lib/`: Core logic, services, utility functions.
+  - `supabase.ts`: Supabase client initialization and utility functions.
+  - `conversationService.ts`: Service for conversation data.
+  - `customerService.ts`: Service for sales pipeline customer data.
+  - `databaseFunctions.ts`: Functions for managing database schema (e.g., sales pipeline table).
+  - `utils.ts`: General utility functions.
+  - `finance.ts`: Functions related to financial data.
+  - `mockConversationData.ts`, `mockPipelineData.ts`: Mock data sources.
+- `context/`: React Context API implementations (e.g., `PipelineProvider`, `RevenueDisplayProvider`).
+- `hooks/`: Custom React Hooks.
+- `types/`: TypeScript type definitions.
+
+---
+
+## 1. Main Dashboard (`src/app/page.tsx`)
+The main dashboard page serves as the central hub for viewing key performance indicators.
+
+### A. Functionality & Features
+- **Dynamic Rendering**: Uses `export const dynamic = 'force-dynamic';` to ensure data is always fresh on each request.
+- **Financial Metrics**:
+  - Fetches monthly financial data via `getMonthlyFinancials()` from `src/lib/finance.ts`.
+  - Displays MRR (Monthly Recurring Revenue) metrics through `MRRMetricsProvider`.
+  - Displays other financial metrics (development cost, operational cost, net profit) via `FinancialMetricsProvider`.
+  - Net profit calculation incorporates data from the Sales Pipeline.
+- **Sales Pipeline Overview**:
+  - Integrates and displays the sales pipeline directly on the dashboard using `PipelineProvider` and `ResponsivePipelineBoard`.
+- **Connection Status**: Shows the status of backend connections using the `ConnectionStatus` component.
+
+### B. Key Components Used
+- `ConnectionStatus`: Displays backend connection status.
+- `FinancialMetricsProvider`: Renders financial metrics.
+- `PipelineProvider`: Provides context for sales pipeline data.
+- `ResponsivePipelineBoard`: Renders the sales pipeline view.
+- `MRRMetricsProvider`: Renders MRR specific metrics.
+- `RevenueDisplayProvider`: Manages revenue data display context.
+
+### C. Data Flow
+- Fetches initial financial data server-side.
+- Pipeline data is managed through `PipelineProvider` and likely fetched within its context or components.
+- The page structure suggests a top-down flow of data, with providers making data available to their child components.
+
+---
+
+## 2. Sales Pipeline Feature
+The Sales Pipeline functionality is integrated into the main dashboard and managed through various services and database functions.
+
+### A. Data Model & Storage (`Customer` Interface in `customerService.ts`)
+- Customer data is comprehensive, including:
+  - Basic info: `name`, `type`, `stage`, `priority`, `probability`.
+  - Financials: `current_artists`, `potential_artists`, `current_mrr`, `potential_mrr`, `weighted_mrr` (auto-calculated in DB).
+  - Time tracking: `expected_close_date`, `stage_entered_at`, `days_in_stage` (auto-calculated in DB).
+  - Activity: `last_contact_date`, `activity_count`, `next_activity_type/date` (some auto-updated by DB triggers).
+  - Contact/Company details, Deal info, Notes, Todos.
+  - `contacts`, `stage_history`, `todos`, `custom_fields`, `external_ids` are stored as JSONB in Supabase.
+- Data is stored in the `sales_pipeline_customers` table in Supabase.
+
+### B. Core Logic (`src/lib/customerService.ts`)
+- **CRUD Operations**: Provides functions to `fetchCustomers`, `createCustomer`, `updateCustomer`, `deleteCustomer`.
+- **`updateCustomer` Logic**:
+  - Primarily attempts to update via a backend API: `/api/customers/update`.
+  - **Offline/Fallback**: Includes a fallback to update customer data in `localStorage` if the API is unavailable or fails, providing resilience.
+- **Data Transformation**: `rowToCustomer` and `customerToRow` functions handle conversion between the database row format (with JSON strings) and the application's `Customer` object model.
+- **Specialized Updates**: `updateCustomerStage`, `updateCustomerOrder`.
+
+### C. Database Schema & Management (`src/lib/databaseFunctions.ts`)
+- **Programmatic Schema Creation**:
+  - `createSalesPipelineTableFunction()`: Defines a SQL function in Supabase (`create_sales_pipeline_table`) that creates the `sales_pipeline_customers` table if it doesn't exist.
+  - This SQL includes table columns, generated columns (`weighted_mrr`), and several **database triggers** for:
+    - `update_days_in_stage()`: Auto-calculates days in the current stage.
+    - `update_modified_column()`: Auto-updates `updated_at` timestamp.
+    - `update_activity_tracking()`: Auto-updates activity-related fields (`last_activity_date`, `activity_count`, `stage_entered_at` on stage change).
+- **Row Level Security (RLS)**:
+  - RLS is enabled on `sales_pipeline_customers`.
+  - An initial, permissive policy `"Allow all operations for authenticated users"` is set up.
+- **Execution**:
+  - `executeSalesPipelineTableCreation()`: Calls the SQL function to create the table.
+  - `checkSalesPipelineTableExists()`: Checks if the table exists.
+- These functions are used by the `PipelineAdminPage`.
+
+### D. Admin Page (`src/app/pipeline-admin/page.tsx`)
+- Provides a UI for administrators to:
+  - Check if the `sales_pipeline_customers` table exists.
+  - Create the table (by executing the functions from `databaseFunctions.ts`) if it doesn't.
+- Serves as a setup and troubleshooting tool for the sales pipeline's database dependency.
+- The `/sales-pipeline` page itself now redirects to the main dashboard, as the pipeline is displayed there.
+
+---
+
+## 3. Supabase Integration (`src/lib/supabase.ts`)
+Supabase is used as the primary backend for database storage, and potentially authentication and file storage.
+
+### A. Client Initialization
+- **Primary Client (`supabase`)**:
+  - Initialized with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+  - Configured for session persistence and token auto-refresh.
+  - Includes an `apikey` header in requests, potentially for bypassing RLS under specific configurations.
+- **Admin Client (`supabaseAdmin`)**:
+  - Intended for server-side use with `SUPABASE_SERVICE_ROLE_KEY` for admin privileges (bypasses RLS).
+  - Safely falls back to the non-admin client if attempted to be used on the client-side.
+
+### B. Utility Functions
+- `getSalesPipelineValue()`: Calculates total potential revenue from the sales pipeline (excluding closed deals).
+- `uploadCustomerLogo(file)`: Uploads customer logos to Supabase Storage in the `customer_logos` public bucket. Includes logic to create the bucket if it doesn't exist.
+- `checkSupabaseConnection()`: Performs a health check on the Supabase connection.
+- Type definitions for `CustomerRow` (matching `sales_pipeline_customers` table) and `SalesPipelineItem`.
+
+---
+
+## 4. Core Application Layout & Utilities
+
+### A. Root Layout (`src/app/layout.tsx`)
+- Defines the overall HTML structure, sets "Founder Admin" as the title.
+- Imports global CSS and the "Inter" font.
+- **Key Components**:
+  - `PipelineProvider`: Wraps the *entire application*, making pipeline context globally available.
+  - `Navigation`: Renders the main navigation bar.
+  - `AutoRefresh`: Refreshes data application-wide every 2 minutes.
+  - `StorageInitializer`: Likely initializes some data in browser storage on load.
+
+### B. General Utilities (`src/lib/utils.ts`)
+- `cn()`: Merges Tailwind CSS classes.
+- Formatting functions: `formatCurrency`, `formatDate`, `formatPercent`.
+- Calculation functions: `calculatePercentage`, `calculatePercentChange`.
+- Text manipulation: `truncateText`.
+- ID generation: `generateId()`.
+- The `isNotTestEmail` function (critical for conversation filtering) is located in `src/lib/conversationService.ts`, not in the general `utils.ts`.
+
+---
+
+## 5. Conversations Tab: Deep Dive & Technical Breakdown
 
 ## 1. Overview
 The **Conversations** tab is a feature-rich page in the CEO Dashboard app that allows users to view, search, filter, and export user conversations (chats) between users and the assistant. It is implemented as a Next.js page at `src/app/conversations/page.tsx` and interacts with both backend APIs and mock data for development/testing.
