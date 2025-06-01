@@ -670,9 +670,9 @@ export default function ConversationsPage() {
           </button>
         </div>
         {showChart ? (
-          <div className="bg-white rounded-2xl shadow-md p-6">
+          <div className="bg-white rounded-2xl shadow-md p-6 max-w-4xl mx-auto">
             <div className="flex items-center mb-4 gap-4">
-              <h2 className="text-2xl font-bold">Messages & Reports Over Time</h2>
+              <h2 className="text-2xl font-bold">Product Usage</h2>
             </div>
             {chartLoading ? (
               <div className="text-center text-gray-500 py-8">Loading chart...</div>
@@ -703,41 +703,98 @@ export default function ConversationsPage() {
                   plugins: {
                     legend: { display: true },
                     title: { display: false },
+                    tooltip: {
+                      callbacks: {
+                        title: function(tooltipItems) {
+                          if (tooltipItems.length > 0) {
+                            const date = tooltipItems[0].parsed?.x;
+                            if (date) {
+                              const d = new Date(date);
+                              const sunday = new Date(d);
+                              sunday.setDate(d.getDate() - d.getDay());
+                              return "Week of " + sunday.toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+                            }
+                          }
+                          return '';
+                        },
+                        label: function(tooltipItem) {
+                          let label = tooltipItem.dataset.label || '';
+                          if (label) {
+                            label += ': ';
+                          }
+                          if (tooltipItem.parsed.y !== null) {
+                            label += tooltipItem.parsed.y;
+                          }
+                          if (tooltipItem.dataset.label === 'Messages Sent' || tooltipItem.dataset.label === 'Segment Reports') {
+                            label += ' (weekly)';
+                          }
+                          return label;
+                        }
+                      }
+                    },
                     annotation: {
-                      annotations: chartData.annotations ? chartData.annotations.map(annotation => {
+                      annotations: chartData.annotations && chartData.datasets.length > 0 ? chartData.annotations.map(annotation => {
                         if (annotation.event_description) {
-                            console.log('[DEBUG] Event Description for Label:', annotation.event_description);
-                            // Test with a 'box' annotation
-                            // const eventDate = new Date(annotation.event_date); // Remove unused variable
-                            // To make the box act like a point for xMax, we can add a small duration if needed
-                            // or just use the same date for a thin vertical line-like box anchor.
-                            // For simplicity, let xMin and xMax be the same to center the label at that date.
-                            return {
-                                type: 'box',
-                                xMin: annotation.event_date, 
-                                xMax: annotation.event_date, 
-                                // Adjust yMin/yMax to control the vertical position and height of the label box
-                                yMin: 5,  
-                                yMax: 20, // Made the box a bit taller
-                                backgroundColor: 'rgba(0, 0, 0, 0.75)', // Darker, more solid background for the box
-                                borderColor: 'rgba(0, 0, 0, 0.75)', // Match background or make transparent if no border needed
-                                borderWidth: 1,
-                                cornerRadius: 4, // Add rounded corners to the box
-                                label: {
-                                    content: annotation.event_description,
-                                    enabled: true,
-                                    display: true,
-                                    position: 'center', 
-                                    color: 'white', // White text on dark background
-                                    font: {
-                                        size: 11, // Slightly smaller font if needed for fitting
-                                        weight: 'normal' as const // Normal weight might look cleaner
-                                    },
-                                    padding: 6 // Padding for text within the box
+                            // console.log('[DEBUG] Event Description for Label:', annotation.event_description);
+                            
+                            let yPosition = 15; // Default yPosition, will be overwritten
+                            const baseYWhenDataIsZero = 10; // Center label at Y=10 if data is at/near zero
+                            const offsetFromLineForCenter = 5; // Center label 5 units above data line if data is higher
+
+                            try {
+                                const eventDateString = annotation.event_date.split('T')[0];
+                                const eventDateObj = new Date(eventDateString + 'T00:00:00.000Z');
+
+                                // Determine the start of the week (Sunday) for the event's date (UTC)
+                                const eventWeekStart = new Date(eventDateObj);
+                                eventWeekStart.setUTCDate(eventDateObj.getUTCDate() - eventDateObj.getUTCDay());
+                                eventWeekStart.setUTCHours(0, 0, 0, 0);
+                                const eventWeekStartISO = eventWeekStart.toISOString();
+
+                                const dataPointIndex = chartData.rawDates.findIndex(rawDateISO => rawDateISO === eventWeekStartISO);
+
+                                if (dataPointIndex !== -1) {
+                                    let maxValueAtPoint = 0;
+                                    const messagesDataset = chartData.datasets.find(ds => ds.label === 'Messages Sent');
+                                    const reportsDataset = chartData.datasets.find(ds => ds.label === 'Segment Reports');
+
+                                    if (messagesDataset && messagesDataset.data[dataPointIndex] && typeof messagesDataset.data[dataPointIndex].y === 'number') {
+                                        maxValueAtPoint = Math.max(maxValueAtPoint, messagesDataset.data[dataPointIndex].y);
+                                    }
+                                    if (reportsDataset && reportsDataset.data[dataPointIndex] && typeof reportsDataset.data[dataPointIndex].y === 'number') {
+                                        maxValueAtPoint = Math.max(maxValueAtPoint, reportsDataset.data[dataPointIndex].y);
+                                    }
+
+                                    if (maxValueAtPoint <= 1) { // If data is at or very near the X-axis
+                                        yPosition = baseYWhenDataIsZero;
+                                    } else {
+                                        yPosition = maxValueAtPoint + offsetFromLineForCenter;
+                                    }
+                                } else {
+                                    console.warn(`No matching weekly data point for event on ${eventDateString} (week start ${eventWeekStartISO}). Placing annotation at default Y.`);
+                                    yPosition = baseYWhenDataIsZero; 
                                 }
+                            } catch (e) {
+                                console.error("Error calculating yPosition for annotation:", e, annotation);
+                                yPosition = baseYWhenDataIsZero; // Fallback
+                            }
+
+                            return {
+                                type: 'label',
+                                xValue: annotation.event_date,
+                                yValue: yPosition, 
+                                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                                color: 'white', // Font color for the label text
+                                content: annotation.event_description,
+                                font: {
+                                    size: 10, // Slightly smaller font for a cleaner look
+                                    weight: 'normal' as const
+                                },
+                                padding: { top: 3, bottom: 3, left: 5, right: 5 }, // Adjust padding around the text
+                                cornerRadius: 3, // Rounded corners for the label background
                             };
                         } 
-                        // This is a daily marker (no description)
+                        // This is a daily marker (no description) - rendered as a faint line
                         return {
                             type: 'line',
                             scaleID: 'x',
@@ -771,7 +828,8 @@ export default function ConversationsPage() {
                       }
                     },
                     y: {
-                      beginAtZero: true
+                      beginAtZero: true,
+                      grace: '5%' // Add 5% padding to the top of the Y-axis
                     }
                   }
                 }}
