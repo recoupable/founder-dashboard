@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       .from('rooms')
       .select('id, account_id, artist_id, updated_at, topic')
       .order('updated_at', { ascending: false })
-      .range(0, 9999);
+      .limit(10000);
 
     if (roomsError || !roomsData) {
       console.error('Error fetching rooms:', roomsError);
