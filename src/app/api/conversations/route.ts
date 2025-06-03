@@ -53,19 +53,38 @@ export async function GET(request: NextRequest) {
     let filteredTotalUniqueUsers = 0;
     
     try {
-      // Always start with the same dataset - get all account emails
-      const { data: allAccountEmailsData, error: accountEmailsError } = await supabaseAdmin
-        .from('account_emails')
-        .select('account_id, email')
-        .limit(10000);
+      // Get users from both account_emails AND account_wallets to include miniapp users
+      const [emailUsersResponse, walletUsersResponse] = await Promise.all([
+        supabaseAdmin
+          .from('account_emails')
+          .select('account_id, email')
+          .limit(10000),
+        supabaseAdmin
+          .from('account_wallets')
+          .select('account_id, wallet')
+          .limit(10000)
+      ]);
       
-      if (accountEmailsError) {
-        console.error('API ROUTE: Error getting account emails:', accountEmailsError);
-      } else if (allAccountEmailsData) {
-        // Calculate total unique users from account_emails (this is our baseline)
-        totalUniqueUsers = new Set(allAccountEmailsData.map(r => r.account_id)).size;
-        console.log(`API ROUTE: Total unique users from account_emails: ${totalUniqueUsers}`);
-        
+      if (emailUsersResponse.error) {
+        console.error('API ROUTE: Error getting account emails:', emailUsersResponse.error);
+      }
+      if (walletUsersResponse.error) {
+        console.error('API ROUTE: Error getting account wallets:', walletUsersResponse.error);
+      }
+      
+      const allAccountEmailsData = emailUsersResponse.data || [];
+      const allWalletUsersData = walletUsersResponse.data || [];
+      
+      // Calculate total unique users from BOTH email and wallet users
+      const allAccountIds = new Set([
+        ...allAccountEmailsData.map(r => r.account_id),
+        ...allWalletUsersData.map(r => r.account_id)
+      ]);
+      totalUniqueUsers = allAccountIds.size;
+      
+      console.log(`API ROUTE: Total unique users (emails + wallets): ${totalUniqueUsers} (${allAccountEmailsData.length} email users + ${allWalletUsersData.length} wallet users)`);
+      
+      if (allAccountEmailsData) {
         // If excluding test emails, we need to filter the totals
         if (excludeTestEmails) {
           // Get test emails list
@@ -76,9 +95,10 @@ export async function GET(request: NextRequest) {
           const testEmailsList = testEmailsData?.map(item => item.email) || [];
           console.log(`API ROUTE: Test emails to exclude: ${testEmailsList.length}`);
           
-          // Filter out test accounts from the same dataset
+          // Filter out test accounts from both email and wallet users
           const nonTestAccountIds = new Set();
           
+          // Add non-test email users
           for (const accountEmail of allAccountEmailsData) {
             const email = accountEmail.email;
             if (!email) continue;
@@ -88,9 +108,18 @@ export async function GET(request: NextRequest) {
             nonTestAccountIds.add(accountEmail.account_id);
           }
           
+          // Add all wallet users (assuming wallet users are real users, not test accounts)
+          for (const walletUser of allWalletUsersData) {
+            // Wallet users are considered real users unless their account_id is in some test list
+            // You can add additional wallet-specific filtering here if needed
+            nonTestAccountIds.add(walletUser.account_id);
+          }
+          
           // Count filtered users and rooms
           const nonTestAccountIdsArray = Array.from(nonTestAccountIds);
           filteredTotalUniqueUsers = nonTestAccountIdsArray.length;
+          
+          console.log(`API ROUTE: After filtering test emails - Email users: ${allAccountEmailsData.filter(e => e.email && !testEmailsList.includes(e.email) && !e.email.includes('@example.com') && !e.email.includes('+')).length}, Wallet users: ${allWalletUsersData.length}, Total: ${filteredTotalUniqueUsers}`);
           
           if (nonTestAccountIdsArray.length > 0) {
             // Count rooms for these non-test accounts
@@ -186,12 +215,12 @@ export async function GET(request: NextRequest) {
       topic: string | null;
     }>;
     
-    // Fetch account details in parallel
+    // Fetch account details in parallel (including wallet data for miniapp users)
     const accountIds = typedRoomsData
       .map((room) => room.account_id)
       .filter((id, index, self) => self.indexOf(id) === index);
     
-    const [accountsResponse, accountEmailsResponse, artistAccountsResponse] = await Promise.all([
+    const [accountsResponse, accountEmailsResponse, accountWalletsResponse, artistAccountsResponse] = await Promise.all([
       // Get account names
       supabaseAdmin
         .from('accounts')
@@ -202,6 +231,12 @@ export async function GET(request: NextRequest) {
       supabaseAdmin
         .from('account_emails')
         .select('account_id, email')
+        .in('account_id', accountIds),
+        
+      // Get account wallets for miniapp users
+      supabaseAdmin
+        .from('account_wallets')
+        .select('account_id, wallet')
         .in('account_id', accountIds),
         
       // Get artist names using artist_ids directly from rooms
@@ -226,6 +261,14 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    // Create wallet map for miniapp users
+    const accountWalletsMap = new Map();
+    if (accountWalletsResponse.data) {
+      for (const entry of accountWalletsResponse.data) {
+        accountWalletsMap.set(entry.account_id, entry.wallet);
+      }
+    }
+    
     // Create artist names map
     const artistNamesMap = new Map();
     if (artistAccountsResponse.data) {
@@ -238,7 +281,26 @@ export async function GET(request: NextRequest) {
     const result = typedRoomsData.map((room) => {
       const accountId = room.account_id;
       const accountName = accountNamesMap.get(accountId) || accountId.substring(0, 8);
-      const email = accountEmailsMap.get(accountId) || `${accountName}@example.com`;
+      
+      // Check if user has email or wallet (prefer email, fallback to wallet)
+      const email = accountEmailsMap.get(accountId);
+      const wallet = accountWalletsMap.get(accountId);
+      
+      let displayEmail;
+      let isWalletUser = false;
+      
+      if (email) {
+        // Regular email user
+        displayEmail = email;
+      } else if (wallet) {
+        // Wallet user - show truncated wallet as "email"
+        displayEmail = `${wallet.substring(0, 8)}...${wallet.slice(-4)} (wallet)`;
+        isWalletUser = true;
+      } else {
+        // Fallback for users with neither email nor wallet
+        displayEmail = `${accountName} (no contact)`;
+      }
+      
       const artistId = room.artist_id || 'Unknown Artist';
       const artistName = artistNamesMap.get(artistId) || artistId;
       
@@ -246,7 +308,7 @@ export async function GET(request: NextRequest) {
         room_id: room.id,
         created_at: room.updated_at,
         last_message_date: room.updated_at,
-        account_email: email,
+        account_email: displayEmail,
         account_name: accountName,
         artist_name: artistName,
         artist_reference: artistId !== 'Unknown Artist' ? `REF-${artistId.substring(0, 5)}` : 'REF-UNKNOWN',
@@ -255,8 +317,9 @@ export async function GET(request: NextRequest) {
         id: room.id,
         updatedAt: room.updated_at,
         messageCount: messageCountMap.get(room.id) || 0,
-        email,
-        artist_id: artistId
+        email: displayEmail,
+        artist_id: artistId,
+        is_wallet_user: isWalletUser
       };
     });
 
