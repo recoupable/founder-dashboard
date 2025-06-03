@@ -43,49 +43,88 @@ export async function GET(request: NextRequest) {
     }
     console.log(`API ROUTE: Total rooms in database: ${totalRooms}`);
 
-    // Get conversations
-    const { data: roomsData, error: roomsError } = await supabaseAdmin
-      .from('rooms')
-      .select('id, account_id, artist_id, updated_at, topic', { count: 'exact' })
-      .order('updated_at', { ascending: false })
-      .range(0, 9999);
+    // Fetch all rooms using pagination to overcome 1000-row limit
+    const allRooms = [];
+    const pageSize = 1000;
+    let offset = 0;
+    let hasMore = true;
 
-    console.log(`API ROUTE: Fetched ${roomsData?.length || 0} rooms from database`);
+    while (hasMore) {
+      console.log(`API ROUTE: Fetching rooms ${offset} to ${offset + pageSize - 1}`);
+      
+      const { data: roomsData, error: roomsError } = await supabaseAdmin
+        .from('rooms')
+        .select('id, account_id, artist_id, updated_at, topic')
+        .order('updated_at', { ascending: false })
+        .range(offset, offset + pageSize - 1);
 
-    if (roomsError || !roomsData) {
-      console.error('Error fetching rooms:', roomsError);
+      if (roomsError) {
+        console.error(`API ROUTE: Error fetching rooms at offset ${offset}:`, roomsError);
+        break;
+      }
+
+      if (!roomsData || roomsData.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      allRooms.push(...roomsData);
+      console.log(`API ROUTE: Fetched ${roomsData.length} rooms, total so far: ${allRooms.length}`);
+      
+      // If we got less than pageSize, we've reached the end
+      if (roomsData.length < pageSize) {
+        hasMore = false;
+      } else {
+        offset += pageSize;
+      }
+    }
+
+    console.log(`API ROUTE: Total rooms fetched: ${allRooms.length}`);
+
+    if (allRooms.length === 0) {
+      console.error('No rooms found');
       return NextResponse.json([createFallbackConversation()]);
     }
 
-    // Count messages for each room
-    const roomIds = roomsData.map((room: { id: string }) => room.id);
+    // Count messages for each room - batch to avoid 414 Request-URI Too Large error
+    const roomIds = allRooms.map((room: { id: string }) => room.id);
     console.log(`Fetching message counts for ${roomIds.length} rooms`);
     
-    // Get all memories
-    const { data: memoriesData, error: memoriesError } = await supabaseAdmin
-      .from('memories')
-      .select('room_id')
-      .in('room_id', roomIds);
+    // Batch the message count queries to avoid URI too large errors
+    const messageCountMap = new Map<string, number>();
+    const batchSize = 500; // Smaller batch size for message queries
+    
+    for (let i = 0; i < roomIds.length; i += batchSize) {
+      const batch = roomIds.slice(i, i + batchSize);
+      console.log(`API ROUTE: Fetching message counts for batch ${Math.floor(i/batchSize) + 1}, rooms ${i} to ${Math.min(i + batchSize - 1, roomIds.length - 1)}`);
       
-    if (memoriesError) {
-      console.error('Error fetching message counts:', memoriesError);
+      try {
+        const { data: memoriesData, error: memoriesError } = await supabaseAdmin
+          .from('memories')
+          .select('room_id')
+          .in('room_id', batch);
+          
+        if (memoriesError) {
+          console.error(`Error fetching message counts for batch ${Math.floor(i/batchSize) + 1}:`, memoriesError);
+          continue; // Continue with next batch
+        }
+        
+        if (memoriesData && memoriesData.length > 0) {
+          // Count occurrences of each room_id in this batch
+          for (const memory of memoriesData as { room_id: string }[]) {
+            const count = messageCountMap.get(memory.room_id) || 0;
+            messageCountMap.set(memory.room_id, count + 1);
+          }
+        }
+      } catch (error) {
+        console.error(`Exception fetching message counts for batch ${Math.floor(i/batchSize) + 1}:`, error);
+      }
     }
     
-    // Count messages per room
-    const messageCountMap = new Map<string, number>();
-    if (memoriesData && memoriesData.length > 0) {
-      // Count occurrences of each room_id
-      for (const memory of memoriesData as { room_id: string }[]) {
-        const count = messageCountMap.get(memory.room_id) || 0;
-        messageCountMap.set(memory.room_id, count + 1);
-      }
-      console.log(`Found message counts for ${messageCountMap.size} rooms`);
-    } else {
-      console.log('No messages found');
-    }
+    console.log(`Found message counts for ${messageCountMap.size} rooms`);
     
     // Cast roomsData for type safety
-    const typedRoomsData = roomsData as Array<{
+    const typedRoomsData = allRooms as Array<{
       id: string;
       account_id: string;
       artist_id: string;
