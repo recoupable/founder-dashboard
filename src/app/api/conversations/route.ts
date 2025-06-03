@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
     const { data: roomsData, error: roomsError } = await supabaseAdmin
       .from('rooms')
       .select('id, account_id, artist_id, updated_at, topic')
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .range(0, 9999);
 
     if (roomsError || !roomsData) {
       console.error('Error fetching rooms:', roomsError);
@@ -146,7 +147,6 @@ export async function GET(request: NextRequest) {
         artist_reference: artistId !== 'Unknown Artist' ? `REF-${artistId.substring(0, 5)}` : 'REF-UNKNOWN',
         topic: room.topic || null,
         is_test_account: false,
-        // Keep these fields for backward compatibility
         id: room.id,
         updatedAt: room.updated_at,
         messageCount: messageCountMap.get(room.id) || 0,
@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         result.filter(
           (conversation) =>
-            conversation.email?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
+            conversation.account_email?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
             conversation.artist_name?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
             conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
         )
@@ -189,11 +189,10 @@ function createFallbackConversation() {
     artist_reference: 'REF-UNKNOWN',
     topic: null,
     is_test_account: false,
-    // Keep these fields for backward compatibility
     id,
     updatedAt: timestamp,
     messageCount: 0,
     email: 'unknown@example.com',
     artist_id: 'unknown'
   };
-} 
+}
