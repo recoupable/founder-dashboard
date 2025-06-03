@@ -33,12 +33,24 @@ export async function GET(request: NextRequest) {
     // Apply time filter - remove unused variable
     // const now = new Date();
     
+    // Get total count first
+    const { count: totalRooms, error: countError } = await supabaseAdmin
+      .from('rooms')
+      .select('*', { count: 'exact', head: true });
+    
+    if (countError) {
+      console.error('API ROUTE: Error getting room count:', countError);
+    }
+    console.log(`API ROUTE: Total rooms in database: ${totalRooms}`);
+
     // Get conversations
     const { data: roomsData, error: roomsError } = await supabaseAdmin
       .from('rooms')
-      .select('id, account_id, artist_id, updated_at, topic')
+      .select('id, account_id, artist_id, updated_at, topic', { count: 'exact' })
       .order('updated_at', { ascending: false })
-      .limit(10000);
+      .range(0, 9999);
+
+    console.log(`API ROUTE: Fetched ${roomsData?.length || 0} rooms from database`);
 
     if (roomsError || !roomsData) {
       console.error('Error fetching rooms:', roomsError);
@@ -158,16 +170,17 @@ export async function GET(request: NextRequest) {
     // Filter by search query if provided
     if (searchQuery) {
       console.log('Filtering by search query:', searchQuery);
-      return NextResponse.json(
-        result.filter(
-          (conversation) =>
-            conversation.account_email?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
-            conversation.artist_name?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
-            conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
-        )
+      const filteredResult = result.filter(
+        (conversation) =>
+          conversation.account_email?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
+          conversation.artist_name?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
+          conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
       );
+      console.log(`API ROUTE: Returning ${filteredResult.length} filtered conversations`);
+      return NextResponse.json(filteredResult);
     }
 
+    console.log(`API ROUTE: Returning ${result.length} total conversations`);
     return NextResponse.json(result);
   } catch (error) {
     console.error('API ROUTE: Uncaught error processing request:', error);
