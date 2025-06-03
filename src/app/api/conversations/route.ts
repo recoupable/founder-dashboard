@@ -53,16 +53,18 @@ export async function GET(request: NextRequest) {
     let filteredTotalUniqueUsers = 0;
     
     try {
-      const { data: uniqueUsersData, error: uniqueUsersError } = await supabaseAdmin
-        .from('rooms')
-        .select('account_id')
-        .limit(10000); // Get up to 10k to count unique users
+      // Always start with the same dataset - get all account emails
+      const { data: allAccountEmailsData, error: accountEmailsError } = await supabaseAdmin
+        .from('account_emails')
+        .select('account_id, email')
+        .limit(10000);
       
-      if (uniqueUsersError) {
-        console.error('API ROUTE: Error getting unique users:', uniqueUsersError);
-      } else if (uniqueUsersData) {
-        totalUniqueUsers = new Set(uniqueUsersData.map(r => r.account_id)).size;
-        console.log(`API ROUTE: Total unique users: ${totalUniqueUsers}`);
+      if (accountEmailsError) {
+        console.error('API ROUTE: Error getting account emails:', accountEmailsError);
+      } else if (allAccountEmailsData) {
+        // Calculate total unique users from account_emails (this is our baseline)
+        totalUniqueUsers = new Set(allAccountEmailsData.map(r => r.account_id)).size;
+        console.log(`API ROUTE: Total unique users from account_emails: ${totalUniqueUsers}`);
         
         // If excluding test emails, we need to filter the totals
         if (excludeTestEmails) {
@@ -74,45 +76,37 @@ export async function GET(request: NextRequest) {
           const testEmailsList = testEmailsData?.map(item => item.email) || [];
           console.log(`API ROUTE: Test emails to exclude: ${testEmailsList.length}`);
           
-          // Get all account emails to filter by test status
-          const { data: accountEmailsData } = await supabaseAdmin
-            .from('account_emails')
-            .select('account_id, email')
-            .limit(10000);
+          // Filter out test accounts from the same dataset
+          const nonTestAccountIds = new Set();
           
-          if (accountEmailsData) {
-            // Filter out test accounts
-            const nonTestAccountIds = new Set();
-            
-            for (const accountEmail of accountEmailsData) {
-              const email = accountEmail.email;
-              if (!email) continue;
-              if (testEmailsList.includes(email)) continue;
-              if (email.includes('@example.com')) continue;
-              if (email.includes('+')) continue;
-              nonTestAccountIds.add(accountEmail.account_id);
-            }
-            
-            // Count rooms for non-test accounts
-            const nonTestAccountIdsArray = Array.from(nonTestAccountIds);
-            filteredTotalUniqueUsers = nonTestAccountIdsArray.length;
-            
-            if (nonTestAccountIdsArray.length > 0) {
-              // Count rooms for these non-test accounts
-              const { count: nonTestRoomsCount } = await supabaseAdmin
-                .from('rooms')
-                .select('*', { count: 'exact', head: true })
-                .in('account_id', nonTestAccountIdsArray);
-              
-              filteredTotalRooms = nonTestRoomsCount || 0;
-            } else {
-              filteredTotalRooms = 0;
-            }
-            
-            console.log(`API ROUTE: After filtering test emails - Rooms: ${filteredTotalRooms}, Users: ${filteredTotalUniqueUsers}`);
+          for (const accountEmail of allAccountEmailsData) {
+            const email = accountEmail.email;
+            if (!email) continue;
+            if (testEmailsList.includes(email)) continue;
+            if (email.includes('@example.com')) continue;
+            if (email.includes('+')) continue;
+            nonTestAccountIds.add(accountEmail.account_id);
           }
+          
+          // Count filtered users and rooms
+          const nonTestAccountIdsArray = Array.from(nonTestAccountIds);
+          filteredTotalUniqueUsers = nonTestAccountIdsArray.length;
+          
+          if (nonTestAccountIdsArray.length > 0) {
+            // Count rooms for these non-test accounts
+            const { count: nonTestRoomsCount } = await supabaseAdmin
+              .from('rooms')
+              .select('*', { count: 'exact', head: true })
+              .in('account_id', nonTestAccountIdsArray);
+            
+            filteredTotalRooms = nonTestRoomsCount || 0;
+          } else {
+            filteredTotalRooms = 0;
+          }
+          
+          console.log(`API ROUTE: After filtering test emails - Rooms: ${filteredTotalRooms}, Users: ${filteredTotalUniqueUsers}`);
         } else {
-          // Not excluding test emails, use full totals
+          // Not excluding test emails, use full totals but calculated from the same source
           filteredTotalRooms = totalRooms || 0;
           filteredTotalUniqueUsers = totalUniqueUsers;
         }
