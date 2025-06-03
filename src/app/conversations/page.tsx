@@ -148,8 +148,16 @@ function getDateRangeForFilter(filter: string): { start: string | null, end: str
 export default function ConversationsPage() {
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [excludeTestEmails, setExcludeTestEmails] = useState(false);
+  const [excludeTestEmails, setExcludeTestEmails] = useState(true);
   const [timeFilter, setTimeFilter] = useState('All Time');
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalUniqueUsers, setTotalUniqueUsers] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [pageSize] = useState(100); // Fixed page size
   
   // Test email management state
   const [showTestEmailPopup, setShowTestEmailPopup] = useState(false);
@@ -188,6 +196,11 @@ export default function ConversationsPage() {
   const [isSavingAnnotation, setIsSavingAnnotation] = useState(false);
   const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
   const [refreshChartToggle, setRefreshChartToggle] = useState(false); // To trigger re-fetch
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, excludeTestEmails, timeFilter]);
 
   React.useEffect(() => {
     async function fetchReports() {
@@ -229,7 +242,9 @@ export default function ConversationsPage() {
         const filters: ConversationFilters = {
           searchQuery,
           excludeTestEmails,
-          timeFilter
+          timeFilter,
+          page: currentPage,
+          limit: pageSize
         };
         
         console.log('Fetching conversations with filters:', filters);
@@ -245,7 +260,12 @@ export default function ConversationsPage() {
         // Restore original console.log
         console.log = originalConsoleLog;
         
-        setConversations(result);
+        // Update conversations and pagination state
+        setConversations(result.conversations);
+        setTotalPages(result.totalPages);
+        setTotalCount(result.totalCount);
+        setTotalUniqueUsers(result.totalUniqueUsers);
+        setHasMore(result.hasMore);
       } catch (err) {
         console.error('Failed to load conversations:', err);
         setError('Failed to load conversations. Please try again.');
@@ -255,7 +275,7 @@ export default function ConversationsPage() {
     };
     
     loadConversations();
-  }, [searchQuery, excludeTestEmails, timeFilter]);
+  }, [searchQuery, excludeTestEmails, timeFilter, currentPage, pageSize]);
   
   // Load conversation detail when selection changes
   useEffect(() => {
@@ -1158,10 +1178,10 @@ export default function ConversationsPage() {
                     <div className="text-lg font-bold">Rooms</div>
                     <div className="flex space-x-2">
                       <div className="text-sm bg-gray-100 px-2 py-1 rounded-md">
-                        {filteredConversations.length} rooms
+                        {totalCount} total rooms
                       </div>
                       <div className="text-sm bg-gray-100 px-2 py-1 rounded-md">
-                        {new Set(filteredConversations.map(conv => conv.account_email)).size} users
+                        {totalUniqueUsers} total users
                       </div>
                       <button
                         type="button"
@@ -1377,6 +1397,43 @@ export default function ConversationsPage() {
                       </div>
                     )}
                   </div>
+                  
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="flex justify-between items-center mt-4 pt-4 border-t">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        className={`px-3 py-1 rounded-md text-sm ${
+                          currentPage === 1
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-500 text-white hover:bg-blue-600'
+                        }`}
+                      >
+                        Previous
+                      </button>
+                      
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-600">
+                          Showing {conversations.length} of {totalCount} rooms
+                        </span>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={!hasMore}
+                        className={`px-3 py-1 rounded-md text-sm ${
+                          !hasMore
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-500 text-white hover:bg-blue-600'
+                        }`}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
               
