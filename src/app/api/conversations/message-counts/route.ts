@@ -6,10 +6,15 @@ export async function GET(request: Request) {
   const start_date = searchParams.get('start_date');
   const end_date = searchParams.get('end_date');
 
-  // Default to start of month if not provided
+  // If start_date is not provided, use a very early date for "All Time"
   const now = new Date();
-  const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const start = start_date || defaultStart;
+  const allTimeStartDate = '1970-01-01T00:00:00.000Z'; 
+  const defaultCurrentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+  // If a start_date is explicitly passed, use it.
+  // Otherwise, if it was intentionally omitted by the client (for All Time), use allTimeStartDate.
+  // This specific API isn't directly selecting "Month", but keeping a monthly default if old clients call without params.
+  const start = start_date ? start_date : (request.url.includes('start_date=') ? defaultCurrentMonthStart : allTimeStartDate);
   const end = end_date || now.toISOString();
 
   // Query Supabase for messages sent by users in the period
