@@ -75,14 +75,13 @@ export async function GET(request: NextRequest) {
       const allAccountEmailsData = emailUsersResponse.data || [];
       const allWalletUsersData = walletUsersResponse.data || [];
       
-      // Calculate total unique users from BOTH email and wallet users
-      const allAccountIds = new Set([
-        ...allAccountEmailsData.map(r => r.account_id),
-        ...allWalletUsersData.map(r => r.account_id)
-      ]);
+      // Calculate total unique users from BOTH email and wallet users (exclude accounts with neither)
+      const emailAccountIds = new Set(allAccountEmailsData.map(r => r.account_id));
+      const walletAccountIds = new Set(allWalletUsersData.map(r => r.account_id));
+      const allAccountIds = new Set([...emailAccountIds, ...walletAccountIds]);
       totalUniqueUsers = allAccountIds.size;
       
-      console.log(`API ROUTE: Total unique users (emails + wallets): ${totalUniqueUsers} (${allAccountEmailsData.length} email users + ${allWalletUsersData.length} wallet users)`);
+      console.log(`API ROUTE: Total unique users (emails + wallets): ${totalUniqueUsers} (${allAccountEmailsData.length} email users + ${allWalletUsersData.length} wallet users, excluding no-contact accounts)`);
       
       if (allAccountEmailsData) {
         // If excluding test emails, we need to filter the totals
@@ -122,20 +121,16 @@ export async function GET(request: NextRequest) {
           console.log(`API ROUTE: After filtering test emails - Email users: ${allAccountEmailsData.filter(e => e.email && !testEmailsList.includes(e.email) && !e.email.includes('@example.com') && !e.email.includes('+')).length}, Wallet users: ${allWalletUsersData.length}, Total: ${filteredTotalUniqueUsers}`);
           
           if (nonTestAccountIdsArray.length > 0) {
-            // Count rooms for these non-test accounts
-            const { count: nonTestRoomsCount } = await supabaseAdmin
-              .from('rooms')
-              .select('*', { count: 'exact', head: true })
-              .in('account_id', nonTestAccountIdsArray);
-            
-            filteredTotalRooms = nonTestRoomsCount || 0;
+            // Keep all rooms, just filter user count
+            filteredTotalRooms = totalRooms || 0;
           } else {
-            filteredTotalRooms = 0;
+            filteredTotalRooms = totalRooms || 0;
           }
           
           console.log(`API ROUTE: After filtering test emails - Rooms: ${filteredTotalRooms}, Users: ${filteredTotalUniqueUsers}`);
         } else {
-          // Not excluding test emails, use full totals but calculated from the same source
+          // Not excluding test emails, but still exclude no-contact accounts from USER count
+          // Keep all rooms in the room count
           filteredTotalRooms = totalRooms || 0;
           filteredTotalUniqueUsers = totalUniqueUsers;
         }
@@ -148,7 +143,7 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
     console.log(`API ROUTE: Fetching page ${page}, limit ${limit}, offset ${offset}`);
 
-    // Fetch only the requested page of rooms
+    // Fetch only the requested page of rooms (keep all rooms, just exclude no-contact from user counts)
     const { data: roomsData, error: roomsError } = await supabaseAdmin
       .from('rooms')
       .select('id, account_id, artist_id, updated_at, topic')
@@ -282,7 +277,7 @@ export async function GET(request: NextRequest) {
       const accountId = room.account_id;
       const accountName = accountNamesMap.get(accountId) || accountId.substring(0, 8);
       
-      // Check if user has email or wallet (prefer email, fallback to wallet)
+      // Check if user has email or wallet (all users now have at least one)
       const email = accountEmailsMap.get(accountId);
       const wallet = accountWalletsMap.get(accountId);
       
@@ -297,7 +292,7 @@ export async function GET(request: NextRequest) {
         displayEmail = `${wallet.substring(0, 8)}...${wallet.slice(-4)} (wallet)`;
         isWalletUser = true;
       } else {
-        // Fallback for users with neither email nor wallet
+        // Account with neither email nor wallet (artist/project record)
         displayEmail = `${accountName} (no contact)`;
       }
       
