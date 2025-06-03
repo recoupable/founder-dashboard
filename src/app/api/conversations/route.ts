@@ -9,11 +9,15 @@ export async function GET(request: NextRequest) {
     const searchQuery = searchParams.get('search') || '';
     const excludeTestEmails = searchParams.get('excludeTest') === 'true';
     const timeFilter = searchParams.get('timeFilter') || 'Last 30 Days';
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '100');
     
     console.log('API ROUTE: Request parameters:', { 
       searchQuery, 
       excludeTestEmails, 
       timeFilter,
+      page,
+      limit,
       url: request.url
     });
     
@@ -33,7 +37,7 @@ export async function GET(request: NextRequest) {
     // Apply time filter - remove unused variable
     // const now = new Date();
     
-    // Get total count first
+    // Get total count first for pagination
     const { count: totalRooms, error: countError } = await supabaseAdmin
       .from('rooms')
       .select('*', { count: 'exact', head: true });
@@ -43,56 +47,112 @@ export async function GET(request: NextRequest) {
     }
     console.log(`API ROUTE: Total rooms in database: ${totalRooms}`);
 
-    // Fetch all rooms using pagination to overcome 1000-row limit
-    const allRooms = [];
-    const pageSize = 1000;
-    let offset = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      console.log(`API ROUTE: Fetching rooms ${offset} to ${offset + pageSize - 1}`);
-      
-      const { data: roomsData, error: roomsError } = await supabaseAdmin
+    // Get total unique users across all conversations
+    let totalUniqueUsers = 0;
+    let filteredTotalRooms = totalRooms || 0;
+    let filteredTotalUniqueUsers = 0;
+    
+    try {
+      const { data: uniqueUsersData, error: uniqueUsersError } = await supabaseAdmin
         .from('rooms')
-        .select('id, account_id, artist_id, updated_at, topic')
-        .order('updated_at', { ascending: false })
-        .range(offset, offset + pageSize - 1);
-
-      if (roomsError) {
-        console.error(`API ROUTE: Error fetching rooms at offset ${offset}:`, roomsError);
-        break;
-      }
-
-      if (!roomsData || roomsData.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      allRooms.push(...roomsData);
-      console.log(`API ROUTE: Fetched ${roomsData.length} rooms, total so far: ${allRooms.length}`);
+        .select('account_id')
+        .limit(10000); // Get up to 10k to count unique users
       
-      // If we got less than pageSize, we've reached the end
-      if (roomsData.length < pageSize) {
-        hasMore = false;
-      } else {
-        offset += pageSize;
+      if (uniqueUsersError) {
+        console.error('API ROUTE: Error getting unique users:', uniqueUsersError);
+      } else if (uniqueUsersData) {
+        totalUniqueUsers = new Set(uniqueUsersData.map(r => r.account_id)).size;
+        console.log(`API ROUTE: Total unique users: ${totalUniqueUsers}`);
+        
+        // If excluding test emails, we need to filter the totals
+        if (excludeTestEmails) {
+          // Get test emails list
+          const { data: testEmailsData } = await supabaseAdmin
+            .from('test_emails')
+            .select('email');
+          
+          const testEmailsList = testEmailsData?.map(item => item.email) || [];
+          console.log(`API ROUTE: Test emails to exclude: ${testEmailsList.length}`);
+          
+          // Get all account emails to filter by test status
+          const { data: accountEmailsData } = await supabaseAdmin
+            .from('account_emails')
+            .select('account_id, email')
+            .limit(10000);
+          
+          if (accountEmailsData) {
+            // Filter out test accounts
+            const nonTestAccountIds = new Set();
+            
+            for (const accountEmail of accountEmailsData) {
+              const email = accountEmail.email;
+              if (!email) continue;
+              if (testEmailsList.includes(email)) continue;
+              if (email.includes('@example.com')) continue;
+              if (email.includes('+')) continue;
+              nonTestAccountIds.add(accountEmail.account_id);
+            }
+            
+            // Count rooms for non-test accounts
+            const nonTestAccountIdsArray = Array.from(nonTestAccountIds);
+            filteredTotalUniqueUsers = nonTestAccountIdsArray.length;
+            
+            if (nonTestAccountIdsArray.length > 0) {
+              // Count rooms for these non-test accounts
+              const { count: nonTestRoomsCount } = await supabaseAdmin
+                .from('rooms')
+                .select('*', { count: 'exact', head: true })
+                .in('account_id', nonTestAccountIdsArray);
+              
+              filteredTotalRooms = nonTestRoomsCount || 0;
+            } else {
+              filteredTotalRooms = 0;
+            }
+            
+            console.log(`API ROUTE: After filtering test emails - Rooms: ${filteredTotalRooms}, Users: ${filteredTotalUniqueUsers}`);
+          }
+        } else {
+          // Not excluding test emails, use full totals
+          filteredTotalRooms = totalRooms || 0;
+          filteredTotalUniqueUsers = totalUniqueUsers;
+        }
       }
+    } catch (error) {
+      console.error('API ROUTE: Exception getting unique users:', error);
     }
 
-    console.log(`API ROUTE: Total rooms fetched: ${allRooms.length}`);
+    // Calculate pagination using filtered totals
+    const offset = (page - 1) * limit;
+    console.log(`API ROUTE: Fetching page ${page}, limit ${limit}, offset ${offset}`);
 
-    if (allRooms.length === 0) {
-      console.error('No rooms found');
-      return NextResponse.json([createFallbackConversation()]);
+    // Fetch only the requested page of rooms
+    const { data: roomsData, error: roomsError } = await supabaseAdmin
+      .from('rooms')
+      .select('id, account_id, artist_id, updated_at, topic')
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    console.log(`API ROUTE: Fetched ${roomsData?.length || 0} rooms for page ${page}`);
+
+    if (roomsError || !roomsData) {
+      console.error('Error fetching rooms:', roomsError);
+      return NextResponse.json({ 
+        conversations: [createFallbackConversation()],
+        totalCount: filteredTotalRooms,
+        totalUniqueUsers: filteredTotalUniqueUsers,
+        currentPage: page,
+        totalPages: Math.ceil(filteredTotalRooms / limit),
+        hasMore: false
+      });
     }
 
-    // Count messages for each room - batch to avoid 414 Request-URI Too Large error
-    const roomIds = allRooms.map((room: { id: string }) => room.id);
+    // Count messages for each room - with smaller dataset, we can use larger batches
+    const roomIds = roomsData.map((room: { id: string }) => room.id);
     console.log(`Fetching message counts for ${roomIds.length} rooms`);
     
-    // Batch the message count queries to avoid URI too large errors
+    // Batch the message count queries - larger batch size since we have fewer rooms
     const messageCountMap = new Map<string, number>();
-    const batchSize = 500; // Smaller batch size for message queries
+    const batchSize = 100; // Larger batch since we only have ~100 rooms per page
     
     for (let i = 0; i < roomIds.length; i += batchSize) {
       const batch = roomIds.slice(i, i + batchSize);
@@ -124,7 +184,7 @@ export async function GET(request: NextRequest) {
     console.log(`Found message counts for ${messageCountMap.size} rooms`);
     
     // Cast roomsData for type safety
-    const typedRoomsData = allRooms as Array<{
+    const typedRoomsData = roomsData as Array<{
       id: string;
       account_id: string;
       artist_id: string;
@@ -206,6 +266,10 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Calculate pagination metadata using filtered totals
+    const totalPages = Math.ceil(filteredTotalRooms / limit);
+    const hasMore = page < totalPages;
+
     // Filter by search query if provided
     if (searchQuery) {
       console.log('Filtering by search query:', searchQuery);
@@ -215,12 +279,28 @@ export async function GET(request: NextRequest) {
           conversation.artist_name?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
           conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
       );
-      console.log(`API ROUTE: Returning ${filteredResult.length} filtered conversations`);
-      return NextResponse.json(filteredResult);
+      console.log(`API ROUTE: Returning ${filteredResult.length} filtered conversations (page ${page}/${totalPages})`);
+      return NextResponse.json({
+        conversations: filteredResult,
+        totalCount: filteredTotalRooms,
+        totalUniqueUsers: filteredTotalUniqueUsers,
+        currentPage: page,
+        totalPages,
+        hasMore,
+        filtered: true,
+        originalCount: result.length
+      });
     }
 
-    console.log(`API ROUTE: Returning ${result.length} total conversations`);
-    return NextResponse.json(result);
+    console.log(`API ROUTE: Returning ${result.length} total conversations (page ${page}/${totalPages})`);
+    return NextResponse.json({
+      conversations: result,
+      totalCount: filteredTotalRooms,
+      totalUniqueUsers: filteredTotalUniqueUsers,
+      currentPage: page,
+      totalPages,
+      hasMore
+    });
   } catch (error) {
     console.error('API ROUTE: Uncaught error processing request:', error);
     return NextResponse.json([createFallbackConversation()]);
