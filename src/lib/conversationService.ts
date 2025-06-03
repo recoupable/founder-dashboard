@@ -66,8 +66,28 @@ export interface ConversationFilters {
   searchQuery?: string;
   excludeTestEmails?: boolean;
   timeFilter?: string;
+  page?: number;
   limit?: number;
-  offset?: number;
+}
+
+// Paginated response interface
+export interface PaginatedConversationResponse {
+  conversations: ConversationListItem[];
+  totalCount: number;
+  totalUniqueUsers: number;
+  currentPage: number;
+  totalPages: number;
+  hasMore: boolean;
+  filtered?: boolean;
+  originalCount?: number;
+  conversationCounts?: {
+    today: number;
+    yesterday: number;
+    thisWeek: number;
+    lastWeek: number;
+    thisMonth: number;
+    lastMonth: number;
+  };
 }
 
 // Service class
@@ -76,12 +96,20 @@ class ConversationService {
   private useMockData = process.env.NODE_ENV === 'development' && false; // Using real API data
   
   // Get list of conversations with optional filtering
-  async getConversationList(filters?: ConversationFilters): Promise<ConversationListItem[]> {
+  async getConversationList(filters?: ConversationFilters): Promise<PaginatedConversationResponse> {
     try {
       if (this.useMockData) {
         console.log('Using mock data for conversation list');
         window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'mock' } }));
-        return this.getMockConversationList(filters);
+        const conversations = await this.getMockConversationList(filters);
+        return {
+          conversations,
+          totalCount: conversations.length,
+          totalUniqueUsers: 0,
+          currentPage: filters?.page || 1,
+          totalPages: 1,
+          hasMore: false
+        };
       }
       
       console.log('Fetching conversations from API with filters:', filters);
@@ -97,6 +125,12 @@ class ConversationService {
       }
       if (filters?.timeFilter) {
         searchParams.append('timeFilter', filters.timeFilter);
+      }
+      if (filters?.page) {
+        searchParams.append('page', filters.page.toString());
+      }
+      if (filters?.limit) {
+        searchParams.append('limit', filters.limit.toString());
       }
       
       const apiUrl = `/api/conversations?${searchParams.toString()}`;
@@ -120,13 +154,19 @@ class ConversationService {
       }
       
       console.log('Processing API response...');
-      const data = await response.json();
-      console.log('Received data from API, count:', data?.length || 0);
+      const data: PaginatedConversationResponse = await response.json();
+      console.log('Received paginated data from API:', {
+        conversationCount: data.conversations?.length || 0,
+        totalCount: data.totalCount,
+        currentPage: data.currentPage,
+        totalPages: data.totalPages,
+        hasMore: data.hasMore
+      });
       
       // Check if we got fallback data
-      if (data.length === 1 && data[0].room_id?.startsWith('mock-room-')) {
-        console.warn('API returned fallback/mock data:', data[0].room_id);
-        window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'fallback', reason: data[0].room_id } }));
+      if (data.conversations?.length === 1 && data.conversations[0].room_id?.startsWith('mock-room-')) {
+        console.warn('API returned fallback/mock data:', data.conversations[0].room_id);
+        window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'fallback', reason: data.conversations[0].room_id } }));
       } else {
         window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'supabase' } }));
       }
@@ -144,10 +184,25 @@ class ConversationService {
             error: error instanceof Error ? error.message : String(error) 
           } 
         }));
-        return this.getMockConversationList(filters);
+        const conversations = await this.getMockConversationList(filters);
+        return {
+          conversations,
+          totalCount: conversations.length,
+          totalUniqueUsers: 0,
+          currentPage: filters?.page || 1,
+          totalPages: 1,
+          hasMore: false
+        };
       }
       
-      return [];
+      return {
+        conversations: [],
+        totalCount: 0,
+        totalUniqueUsers: 0,
+        currentPage: 1,
+        totalPages: 0,
+        hasMore: false
+      };
     }
   }
   
@@ -195,7 +250,7 @@ class ConversationService {
       // For first version, we'll just count the items we fetch
       // In the future, we can optimize this with a COUNT query in the API
       const conversations = await this.getConversationList(filters);
-      return conversations.length;
+      return conversations.totalCount;
     } catch (error) {
       console.error('Error getting conversation count:', error);
       return 0;
@@ -248,8 +303,9 @@ class ConversationService {
       }
       
       // Apply pagination
-      if (filters.limit && filters.offset !== undefined) {
-        conversations = conversations.slice(filters.offset, filters.offset + filters.limit);
+      if (filters.limit && filters.page !== undefined) {
+        const offset = (filters.page - 1) * filters.limit;
+        conversations = conversations.slice(offset, offset + filters.limit);
       }
     }
     

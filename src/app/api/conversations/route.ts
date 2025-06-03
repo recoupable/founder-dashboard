@@ -322,6 +322,214 @@ export async function GET(request: NextRequest) {
     const totalPages = Math.ceil(filteredTotalRooms / limit);
     const hasMore = page < totalPages;
 
+    // Calculate conversation counts by time period for percentage calculations
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfToday.getDate() - 1);
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    const startOfPrevWeek = new Date(startOfWeek);
+    startOfPrevWeek.setDate(startOfWeek.getDate() - 7);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    
+    const conversationCounts = {
+      today: 0,
+      yesterday: 0,
+      thisWeek: 0,
+      lastWeek: 0,
+      thisMonth: 0,
+      lastMonth: 0
+    };
+    
+    // We need to query the full dataset for accurate counts, not just the current page
+    try {
+      let todayCount, yesterdayCount, thisWeekCount, lastWeekCount, thisMonthCount, lastMonthCount;
+      
+      if (excludeTestEmails) {
+        console.log('API ROUTE: Calculating active conversation counts excluding test emails');
+        
+        // Get test emails list for filtering
+        const { data: testEmailsData } = await supabaseAdmin
+          .from('test_emails')
+          .select('email');
+        const testEmailsList = testEmailsData?.map(item => item.email) || [];
+        
+        // Get account IDs to include (email users minus test emails + all wallet users)
+        const [emailAccountsResponse, walletAccountsResponse] = await Promise.all([
+          supabaseAdmin
+            .from('account_emails')
+            .select('account_id, email'),
+          supabaseAdmin
+            .from('account_wallets') 
+            .select('account_id, wallet')
+        ]);
+        
+        const allowedAccountIds = new Set();
+        
+        // Add non-test email users
+        if (emailAccountsResponse.data) {
+          for (const account of emailAccountsResponse.data) {
+            const email = account.email;
+            if (!email) continue;
+            if (testEmailsList.includes(email)) continue;
+            if (email.includes('@example.com')) continue;
+            if (email.includes('+')) continue;
+            allowedAccountIds.add(account.account_id);
+          }
+        }
+        
+        // Add all wallet users (assuming they're real users)
+        if (walletAccountsResponse.data) {
+          for (const account of walletAccountsResponse.data) {
+            allowedAccountIds.add(account.account_id);
+          }
+        }
+        
+        const allowedAccountIdsArray = Array.from(allowedAccountIds);
+        console.log(`API ROUTE: Filtering active conversation counts to ${allowedAccountIdsArray.length} allowed accounts`);
+        
+        // Get rooms for allowed accounts first
+        const { data: allowedRooms } = await supabaseAdmin
+          .from('rooms')
+          .select('id')
+          .in('account_id', allowedAccountIdsArray);
+        
+        const allowedRoomIds = allowedRooms?.map(room => room.id) || [];
+        
+        if (allowedRoomIds.length > 0) {
+          // Query active conversations (rooms with messages) filtered by allowed room IDs
+          const [todayActive, yesterdayActive, thisWeekActive, lastWeekActive, thisMonthActive, lastMonthActive] = await Promise.all([
+            // Today - active conversations
+            supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', startOfToday.toISOString())
+              .in('room_id', allowedRoomIds),
+            
+            // Yesterday - active conversations
+            supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', startOfYesterday.toISOString())
+              .lt('updated_at', startOfToday.toISOString())
+              .in('room_id', allowedRoomIds),
+            
+            // This week - active conversations
+            supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', startOfWeek.toISOString())
+              .in('room_id', allowedRoomIds),
+            
+            // Last week - active conversations
+            supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', startOfPrevWeek.toISOString())
+              .lt('updated_at', startOfWeek.toISOString())
+              .in('room_id', allowedRoomIds),
+            
+            // This month - active conversations
+            supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', startOfMonth.toISOString())
+              .in('room_id', allowedRoomIds),
+            
+            // Last month - active conversations
+            supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', startOfPrevMonth.toISOString())
+              .lt('updated_at', startOfMonth.toISOString())
+              .in('room_id', allowedRoomIds)
+          ]);
+          
+          // Count unique rooms for each period
+          todayCount = { count: new Set(todayActive.data?.map(m => m.room_id) || []).size };
+          yesterdayCount = { count: new Set(yesterdayActive.data?.map(m => m.room_id) || []).size };
+          thisWeekCount = { count: new Set(thisWeekActive.data?.map(m => m.room_id) || []).size };
+          lastWeekCount = { count: new Set(lastWeekActive.data?.map(m => m.room_id) || []).size };
+          thisMonthCount = { count: new Set(thisMonthActive.data?.map(m => m.room_id) || []).size };
+          lastMonthCount = { count: new Set(lastMonthActive.data?.map(m => m.room_id) || []).size };
+        } else {
+          // No allowed rooms, set all counts to 0
+          todayCount = { count: 0 };
+          yesterdayCount = { count: 0 };
+          thisWeekCount = { count: 0 };
+          lastWeekCount = { count: 0 };
+          thisMonthCount = { count: 0 };
+          lastMonthCount = { count: 0 };
+        }
+      } else {
+        console.log('API ROUTE: Calculating active conversation counts including all users');
+        
+        // Original queries without filtering - count active conversations (rooms with messages)
+        const [todayActive, yesterdayActive, thisWeekActive, lastWeekActive, thisMonthActive, lastMonthActive] = await Promise.all([
+          // Today - active conversations
+          supabaseAdmin
+            .from('memories')
+            .select('room_id')
+            .gte('updated_at', startOfToday.toISOString()),
+          
+          // Yesterday - active conversations
+          supabaseAdmin
+            .from('memories')
+            .select('room_id')
+            .gte('updated_at', startOfYesterday.toISOString())
+            .lt('updated_at', startOfToday.toISOString()),
+          
+          // This week - active conversations
+          supabaseAdmin
+            .from('memories')
+            .select('room_id')
+            .gte('updated_at', startOfWeek.toISOString()),
+          
+          // Last week - active conversations
+          supabaseAdmin
+            .from('memories')
+            .select('room_id')
+            .gte('updated_at', startOfPrevWeek.toISOString())
+            .lt('updated_at', startOfWeek.toISOString()),
+          
+          // This month - active conversations
+          supabaseAdmin
+            .from('memories')
+            .select('room_id')
+            .gte('updated_at', startOfMonth.toISOString()),
+          
+          // Last month - active conversations
+          supabaseAdmin
+            .from('memories')
+            .select('room_id')
+            .gte('updated_at', startOfPrevMonth.toISOString())
+            .lt('updated_at', startOfMonth.toISOString())
+        ]);
+        
+        // Count unique rooms for each period
+        todayCount = { count: new Set(todayActive.data?.map(m => m.room_id) || []).size };
+        yesterdayCount = { count: new Set(yesterdayActive.data?.map(m => m.room_id) || []).size };
+        thisWeekCount = { count: new Set(thisWeekActive.data?.map(m => m.room_id) || []).size };
+        lastWeekCount = { count: new Set(lastWeekActive.data?.map(m => m.room_id) || []).size };
+        thisMonthCount = { count: new Set(thisMonthActive.data?.map(m => m.room_id) || []).size };
+        lastMonthCount = { count: new Set(lastMonthActive.data?.map(m => m.room_id) || []).size };
+      }
+      
+      conversationCounts.today = todayCount.count || 0;
+      conversationCounts.yesterday = yesterdayCount.count || 0;
+      conversationCounts.thisWeek = thisWeekCount.count || 0;
+      conversationCounts.lastWeek = lastWeekCount.count || 0;
+      conversationCounts.thisMonth = thisMonthCount.count || 0;
+      conversationCounts.lastMonth = lastMonthCount.count || 0;
+      
+      console.log(`API ROUTE: Active conversation counts${excludeTestEmails ? ' (excluding test emails)' : ' (including all users)'} - Today: ${conversationCounts.today}, Week: ${conversationCounts.thisWeek}, Month: ${conversationCounts.thisMonth}`);
+    } catch (error) {
+      console.error('API ROUTE: Error fetching conversation counts:', error);
+    }
+
     // Filter by search query if provided
     if (searchQuery) {
       console.log('Filtering by search query:', searchQuery);
@@ -340,18 +548,21 @@ export async function GET(request: NextRequest) {
         totalPages,
         hasMore,
         filtered: true,
-        originalCount: result.length
+        originalCount: result.length,
+        conversationCounts
       });
     }
 
     console.log(`API ROUTE: Returning ${result.length} total conversations (page ${page}/${totalPages})`);
+    
     return NextResponse.json({
       conversations: result,
       totalCount: filteredTotalRooms,
       totalUniqueUsers: filteredTotalUniqueUsers,
       currentPage: page,
       totalPages,
-      hasMore
+      hasMore,
+      conversationCounts
     });
   } catch (error) {
     console.error('API ROUTE: Uncaught error processing request:', error);
