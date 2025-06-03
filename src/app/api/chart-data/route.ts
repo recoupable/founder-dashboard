@@ -95,6 +95,7 @@ async function getCachedUsers(): Promise<User[]> {
 }
 
 // Helper function to get active users for a specific date range
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getActiveUsersForDateRange(startDate: Date, endDate: Date): Promise<number> {
   try {
     const users = await getCachedUsers();
@@ -129,6 +130,7 @@ async function getActiveUsersForDateRange(startDate: Date, endDate: Date): Promi
 }
 
 // Helper function to get cached metrics
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getCachedMetrics(timeframe: string): number[] | null {
   const now = Date.now();
   const cachedMetrics = cache.metrics[timeframe];
@@ -142,6 +144,7 @@ function getCachedMetrics(timeframe: string): number[] | null {
 }
 
 // Helper function to cache metrics
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function cacheMetrics(timeframe: string, activeUsers: number[]): void {
   cache.metrics[timeframe] = {
     activeUsers,
@@ -186,6 +189,7 @@ function getDateRanges(timeframe: string, minDateOverride?: Date): { dates: Date
       return { dates, intervals };
     }
     if (timeframe === 'allTimeWeekly') {
+      // eslint-disable-next-line prefer-const
       let currentWeekStart = new Date(minDateOverride);
       currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
       currentWeekStart.setHours(0, 0, 0, 0);
@@ -444,6 +448,7 @@ export async function GET(request: Request) {
     // Generate daily marker annotations (for faint grid lines)
     const dailyMarkerAnnotations = [];
     if (intervals.length > 0) {
+        // eslint-disable-next-line prefer-const
         let currentDate = new Date(minDate); // minDate is the overall start of the chart
         const overallEndDate = new Date(maxDate); // maxDate is the overall end of the chart
 
