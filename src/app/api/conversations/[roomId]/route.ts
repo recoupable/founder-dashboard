@@ -20,6 +20,27 @@ function getRoomIdFromPath(url: string): string {
   return roomId;
 }
 
+// Function to check if an account is a test account
+function isTestAccount(accountId: string, email: string, artistName?: string): boolean {
+  // Check if email contains @example.com or +
+  if (email.includes('@example.com') || email.includes('+')) {
+    return true;
+  }
+  
+  // Check for test artist name
+  if (artistName === 'sweetman_eth') {
+    return true;
+  }
+  
+  // Check for specific test wallet account patterns
+  const testWalletPatterns = ['3cdea198', '5ada04cd', '44b0c8fd', 'c9e86577', '496a071a', 'a3b8a5ba'];
+  if (testWalletPatterns.some(pattern => accountId.includes(pattern))) {
+    return true;
+  }
+  
+  return false;
+}
+
 // API route for fetching conversation details by room ID
 export async function GET(request: Request) {
   try {
@@ -50,6 +71,35 @@ export async function GET(request: Request) {
       return NextResponse.json(createFallbackConversationDetail(roomId));
     }
     
+    // Get user name from accounts table
+    console.log('API: Fetching account name');
+    const { data: accountData, error: accountError } = await supabaseAdmin
+      .from('accounts')
+      .select('name')
+      .eq('id', roomData.account_id)
+      .single();
+    
+    if (accountError) {
+      console.error('API: Error fetching account name:', accountError);
+    }
+    
+    // Get real email from account_emails table
+    console.log('API: Fetching account email');
+    const { data: emailData, error: emailError } = await supabaseAdmin
+      .from('account_emails')
+      .select('email')
+      .eq('account_id', roomData.account_id)
+      .single();
+    
+    if (emailError) {
+      console.error('API: Error fetching account email:', emailError);
+    }
+    
+    // Use the account name or a default placeholder
+    const accountName = accountData?.name || roomData.account_id.substring(0, 8);
+    // Use real email if available, otherwise create a placeholder
+    const accountEmail = emailData?.email || `${accountName}@example.com`;
+    
     // Get artist name from accounts table using the artist_id directly from the room
     const artistId = roomData.artist_id || 'Unknown Artist';
     let artistName = artistId;
@@ -67,6 +117,12 @@ export async function GET(request: Request) {
       } else if (artistAccount) {
         artistName = artistAccount.name;
       }
+    }
+    
+    // CHECK IF THIS IS A TEST ACCOUNT AND RETURN 404 IF SO (after getting artist name)
+    if (isTestAccount(roomData.account_id, accountEmail, artistName)) {
+      console.log('API: Blocking test account conversation:', roomData.account_id, accountEmail, 'artist:', artistName);
+      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
     
     // Step 1.5: Check if this is a segment room
@@ -118,40 +174,6 @@ export async function GET(request: Request) {
     if (messagesError) {
       console.error('API: Error fetching messages:', messagesError);
     }
-    
-    // Get user name from accounts table
-    console.log('API: Fetching account name');
-    const { data: accountData, error: accountError } = await supabaseAdmin
-      .from('accounts')
-      .select('name')
-      .eq('id', roomData.account_id)
-      .single();
-    
-    if (accountError) {
-      console.error('API: Error fetching account name:', accountError);
-    }
-    
-    // Get real email from account_emails table
-    console.log('API: Fetching account email');
-    const { data: emailData, error: emailError } = await supabaseAdmin
-      .from('account_emails')
-      .select('email')
-      .eq('account_id', roomData.account_id)
-      .single();
-    
-    if (emailError) {
-      console.error('API: Error fetching account email:', emailError);
-    }
-    
-    // Use the account name or a default placeholder
-    const accountName = accountData?.name || roomData.account_id.substring(0, 8);
-    // Use real email if available, otherwise create a placeholder
-    const accountEmail = emailData?.email || `${accountName}@example.com`;
-    
-    console.log('API: Using account name:', accountName);
-    console.log('API: Using account email:', accountEmail);
-    console.log('API: Using artist name:', artistName);
-    console.log('API: Using artist ID:', artistId);
     
     // Map messages to the expected format but set a default role since it doesn't exist in DB
     // Also properly handle the JSONB content field

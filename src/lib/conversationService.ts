@@ -49,6 +49,7 @@ export interface ConversationListItem {
   artist_reference: string;
   topic?: string;
   is_test_account: boolean;
+  messageCount?: number;
 }
 
 export interface ConversationDetail {
@@ -68,6 +69,7 @@ export interface ConversationFilters {
   timeFilter?: string;
   page?: number;
   limit?: number;
+  userFilter?: string;
 }
 
 // Paginated response interface
@@ -132,6 +134,9 @@ class ConversationService {
       if (filters?.limit) {
         searchParams.append('limit', filters.limit.toString());
       }
+      if (filters?.userFilter) {
+        searchParams.append('userFilter', filters.userFilter);
+      }
       
       const apiUrl = `/api/conversations?${searchParams.toString()}`;
       console.log('API URL:', apiUrl);
@@ -143,18 +148,35 @@ class ConversationService {
       
       if (!response.ok) {
         console.error('API response not OK:', response.status, response.statusText);
+        let errorMessage = `API error: ${response.status}`;
         try {
-          const errorData = await response.json();
-          console.error('Error response from API:', errorData);
-          throw new Error(errorData.error || `API error: ${response.status}`);
-        } catch (jsonError) {
-          console.error('Failed to parse error response:', jsonError);
-          throw new Error(`API error: ${response.status}`);
+          const errorText = await response.text();
+          if (errorText && errorText.trim() !== '' && errorText !== '{}') {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          console.warn('Could not parse error response:', parseError);
         }
+        console.error('Error response from API:', errorMessage);
+        throw new Error(errorMessage);
       }
       
       console.log('Processing API response...');
-      const data: PaginatedConversationResponse = await response.json();
+      const responseText = await response.text();
+      if (!responseText || responseText.trim() === '' || responseText === '{}') {
+        console.warn('Empty response from conversations API');
+        return {
+          conversations: [],
+          totalCount: 0,
+          totalUniqueUsers: 0,
+          currentPage: filters?.page || 1,
+          totalPages: 0,
+          hasMore: false
+        };
+      }
+      
+      const data: PaginatedConversationResponse = JSON.parse(responseText);
       console.log('Received paginated data from API:', {
         conversationCount: data.conversations?.length || 0,
         totalCount: data.totalCount,
@@ -219,17 +241,45 @@ class ConversationService {
       const response = await fetch(`/api/conversations/${roomId}`);
       
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Error response from API:', errorData);
-        throw new Error(errorData.error || `API error: ${response.status}`);
+        // Handle 404 specifically - this is expected for blocked test conversations
+        if (response.status === 404) {
+          console.log(`Conversation ${roomId} not found (likely blocked test conversation)`);
+          return null;
+        }
+        
+        // Try to get error details for other errors
+        let errorMessage = `API error: ${response.status}`;
+        try {
+          const errorText = await response.text();
+          if (errorText && errorText.trim() !== '' && errorText !== '{}') {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          // If we can't parse the error response, just use the status code
+          console.warn('Could not parse error response:', parseError);
+        }
+        
+        console.error('Error response from API:', errorMessage);
+        throw new Error(errorMessage);
       }
       
-      const data = await response.json();
+      // Try to parse the successful response
+      const responseText = await response.text();
+      if (!responseText || responseText.trim() === '' || responseText === '{}') {
+        console.warn(`Empty response for conversation ${roomId}`);
+        return null;
+      }
+      
+      const data = JSON.parse(responseText);
       return data;
     } catch (error) {
-      console.error(`Error fetching conversation detail for room ${roomId}:`, error);
+      // Only log as error if it's not a 404 (test conversation block)
+      if (error instanceof Error && !error.message.includes('404')) {
+        console.error(`Error fetching conversation detail for room ${roomId}:`, error);
+      }
       
-      // Fall back to mock data if there's an error
+      // For any error, try to fall back to mock data if available
       if (!this.useMockData) {
         console.warn('Falling back to mock data for conversation detail due to error');
         return getMockConversationDetail(roomId);

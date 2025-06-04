@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const timeFilter = searchParams.get('timeFilter') || 'Last 30 Days';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '100');
+    const userFilter = searchParams.get('userFilter') || '';
     
     console.log('API ROUTE: Request parameters:', { 
       searchQuery, 
@@ -18,6 +19,7 @@ export async function GET(request: NextRequest) {
       timeFilter,
       page,
       limit,
+      userFilter,
       url: request.url
     });
     
@@ -107,10 +109,19 @@ export async function GET(request: NextRequest) {
             nonTestAccountIds.add(accountEmail.account_id);
           }
           
-          // Add all wallet users (assuming wallet users are real users, not test accounts)
+          // List of test wallet account IDs to exclude
+          const testWalletAccountIds = ['3cdea198', '5ada04cd', '44b0c8fd', 'c9e86577', '496a071a', 'a3b8a5ba', '2fbe2485'];
+          
+          // Add wallet users, but ALSO filter out test wallet users
           for (const walletUser of allWalletUsersData) {
+            // Check if this is a test wallet user (by account ID pattern)
+            const isTestWallet = testWalletAccountIds.some(testId => walletUser.account_id.startsWith(testId));
+            if (isTestWallet) {
+              console.log('API ROUTE: *** SKIPPING test wallet user in conversations:', walletUser.account_id.substring(0, 8));
+              continue;
+            }
+            
             // Wallet users are considered real users unless their account_id is in some test list
-            // You can add additional wallet-specific filtering here if needed
             nonTestAccountIds.add(walletUser.account_id);
           }
           
@@ -143,12 +154,192 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
     console.log(`API ROUTE: Fetching page ${page}, limit ${limit}, offset ${offset}`);
 
-    // Fetch only the requested page of rooms (keep all rooms, just exclude no-contact from user counts)
-    const { data: roomsData, error: roomsError } = await supabaseAdmin
-      .from('rooms')
-      .select('id, account_id, artist_id, updated_at, topic')
-      .order('updated_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    // Handle user filtering - find account ID for the filtered email
+    let userFilteredAccountIds: Set<string> | null = null;
+    if (userFilter) {
+      console.log(`API ROUTE: Filtering by user: ${userFilter}`);
+      
+      // Check if this is a wallet user filter (contains "wallet")
+      if (userFilter.includes('(wallet)')) {
+        // Extract wallet address from display format like "1a2b3c4d...ef56 (wallet)"
+        const walletMatch = userFilter.match(/^([a-fA-F0-9]{8})\.\.\.([a-fA-F0-9]{4})\s*\(wallet\)$/);
+        if (walletMatch) {
+          const walletStart = walletMatch[1];
+          const walletEnd = walletMatch[2];
+          
+          // Find wallet users that match this pattern
+          const { data: walletUsers } = await supabaseAdmin
+            .from('account_wallets')
+            .select('account_id, wallet');
+          
+          const matchingAccountIds = new Set<string>();
+          if (walletUsers) {
+            for (const walletUser of walletUsers) {
+              if (walletUser.wallet?.startsWith(walletStart) && walletUser.wallet?.endsWith(walletEnd)) {
+                matchingAccountIds.add(walletUser.account_id);
+              }
+            }
+          }
+          userFilteredAccountIds = matchingAccountIds;
+          console.log(`API ROUTE: Found ${matchingAccountIds.size} accounts for wallet filter ${userFilter}`);
+        }
+      } else {
+        // Regular email filtering
+        const { data: emailUsers } = await supabaseAdmin
+          .from('account_emails')
+          .select('account_id, email')
+          .eq('email', userFilter);
+        
+        if (emailUsers && emailUsers.length > 0) {
+          userFilteredAccountIds = new Set(emailUsers.map(user => user.account_id));
+          console.log(`API ROUTE: Found ${userFilteredAccountIds.size} accounts for email filter ${userFilter}`);
+        } else {
+          console.log(`API ROUTE: No accounts found for email filter ${userFilter}`);
+          userFilteredAccountIds = new Set(); // Empty set will result in no rooms
+        }
+      }
+    }
+
+    // Type for room objects
+    type Room = {
+      id: string;
+      account_id: string;
+      artist_id: string;
+      updated_at: string;
+      topic: string | null;
+    };
+
+    // Fetch rooms - filter by account IDs if excluding test emails
+    let roomsData: Room[] | null;
+    let roomsError;
+    
+    if (excludeTestEmails || userFilteredAccountIds) {
+      console.log('API ROUTE: Fetching rooms with filtering (test emails and/or user filter)');
+      
+      let allowedAccountIds = new Set<string>();
+      
+      if (excludeTestEmails) {
+        // Get test emails list
+        const { data: testEmailsData } = await supabaseAdmin
+          .from('test_emails')
+          .select('email');
+        const testEmailsList = testEmailsData?.map(item => item.email) || [];
+        
+        // Get all account data for filtering
+        const [emailAccountsResponse, walletAccountsResponse] = await Promise.all([
+          supabaseAdmin.from('account_emails').select('account_id, email'),
+          supabaseAdmin.from('account_wallets').select('account_id, wallet')
+        ]);
+        
+        // Add non-test email users
+        if (emailAccountsResponse.data) {
+          for (const account of emailAccountsResponse.data) {
+            const email = account.email;
+            if (!email) continue;
+            if (testEmailsList.includes(email)) continue;
+            if (email.includes('@example.com')) continue;
+            if (email.includes('+')) continue;
+            allowedAccountIds.add(account.account_id);
+          }
+        }
+        
+        // List of test wallet account IDs to exclude
+        const testWalletAccountIds = ['3cdea198', '5ada04cd', '44b0c8fd', 'c9e86577', '496a071a', 'a3b8a5ba', '2fbe2485'];
+        
+        // Add wallet users, but ALSO filter out test wallet users
+        if (walletAccountsResponse.data) {
+          for (const account of walletAccountsResponse.data) {
+            // Check if this is a test wallet user (by account ID pattern)
+            const isTestWallet = testWalletAccountIds.some(testId => account.account_id.startsWith(testId));
+            if (isTestWallet) {
+              console.log('API ROUTE: *** EXCLUDING test wallet user from room fetching:', account.account_id.substring(0, 8));
+              continue;
+            }
+            allowedAccountIds.add(account.account_id);
+          }
+        }
+      } else {
+        // If not excluding test emails but we have user filter, start with all accounts
+        const [emailAccountsResponse, walletAccountsResponse] = await Promise.all([
+          supabaseAdmin.from('account_emails').select('account_id, email'),
+          supabaseAdmin.from('account_wallets').select('account_id, wallet')
+        ]);
+        
+        if (emailAccountsResponse.data) {
+          for (const account of emailAccountsResponse.data) {
+            allowedAccountIds.add(account.account_id);
+          }
+        }
+        
+        if (walletAccountsResponse.data) {
+          for (const account of walletAccountsResponse.data) {
+            allowedAccountIds.add(account.account_id);
+          }
+        }
+      }
+      
+      // Apply user filter if provided
+      if (userFilteredAccountIds) {
+        // Intersect allowedAccountIds with userFilteredAccountIds
+        const intersection = new Set<string>();
+        for (const accountId of userFilteredAccountIds) {
+          if (allowedAccountIds.has(accountId)) {
+            intersection.add(accountId);
+          }
+        }
+        allowedAccountIds = intersection;
+        console.log(`API ROUTE: After applying user filter, ${allowedAccountIds.size} accounts remain`);
+      }
+      
+      // Get accounts with test artist names and exclude them (only if excludeTestEmails is true)
+      let testArtistAccountIds = new Set<string>();
+      if (excludeTestEmails) {
+        const { data: testArtistAccounts } = await supabaseAdmin
+          .from('accounts')
+          .select('id')
+          .eq('name', 'sweetman_eth');
+        
+        testArtistAccountIds = new Set(testArtistAccounts?.map(account => account.id) || []);
+        console.log(`API ROUTE: Found ${testArtistAccountIds.size} accounts with test artist name "sweetman_eth"`);
+      }
+      
+      const allowedAccountIdsArray = Array.from(allowedAccountIds);
+      console.log(`API ROUTE: Fetching rooms for ${allowedAccountIdsArray.length} allowed accounts`);
+      
+      if (allowedAccountIdsArray.length > 0) {
+        // Fetch rooms only for allowed accounts
+        const { data, error } = await supabaseAdmin
+          .from('rooms')
+          .select('id, account_id, artist_id, updated_at, topic')
+          .in('account_id', allowedAccountIdsArray)
+          .order('updated_at', { ascending: false })
+          .range(offset, offset + limit - 1);
+        
+        // Filter out test artist rooms after fetching (only if excludeTestEmails is true)
+        if (excludeTestEmails) {
+          roomsData = data?.filter(room => !testArtistAccountIds.has(room.artist_id)) || [];
+          console.log(`API ROUTE: Filtered out ${(data?.length || 0) - roomsData.length} rooms with test artists`);
+        } else {
+          roomsData = data || [];
+        }
+        roomsError = error;
+      } else {
+        roomsData = [];
+        roomsError = null;
+      }
+    } else {
+      console.log('API ROUTE: Fetching all rooms (no filtering)');
+      
+      // Fetch all rooms without filtering
+      const { data, error } = await supabaseAdmin
+        .from('rooms')
+        .select('id, account_id, artist_id, updated_at, topic')
+        .order('updated_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+      
+      roomsData = data;
+      roomsError = error;
+    }
 
     console.log(`API ROUTE: Fetched ${roomsData?.length || 0} rooms for page ${page}`);
 
@@ -180,7 +371,8 @@ export async function GET(request: NextRequest) {
         const { data: memoriesData, error: memoriesError } = await supabaseAdmin
           .from('memories')
           .select('room_id')
-          .in('room_id', batch);
+          .in('room_id', batch)
+          .eq('role', 'user');  // Only count user messages
           
         if (memoriesError) {
           console.error(`Error fetching message counts for batch ${Math.floor(i/batchSize) + 1}:`, memoriesError);
@@ -381,9 +573,19 @@ export async function GET(request: NextRequest) {
           }
         }
         
-        // Add all wallet users (assuming they're real users)
+        // List of test wallet account IDs to exclude
+        const testWalletAccountIds = ['3cdea198', '5ada04cd', '44b0c8fd', 'c9e86577', '496a071a', 'a3b8a5ba', '2fbe2485'];
+        
+        // Add wallet users, but ALSO filter out test wallet users
         if (walletAccountsResponse.data) {
           for (const account of walletAccountsResponse.data) {
+            // Check if this is a test wallet user (by account ID pattern)
+            const isTestWallet = testWalletAccountIds.some(testId => account.account_id.startsWith(testId));
+            if (isTestWallet) {
+              console.log('API ROUTE: *** SKIPPING test wallet user in conversation counts:', account.account_id.substring(0, 8));
+              continue;
+            }
+            
             allowedAccountIds.add(account.account_id);
           }
         }
@@ -394,10 +596,20 @@ export async function GET(request: NextRequest) {
         // Get rooms for allowed accounts first
         const { data: allowedRooms } = await supabaseAdmin
           .from('rooms')
-          .select('id')
+          .select('id, artist_id')
           .in('account_id', allowedAccountIdsArray);
         
-        const allowedRoomIds = allowedRooms?.map(room => room.id) || [];
+        // Also exclude rooms with test artist
+        const { data: testArtistAccounts } = await supabaseAdmin
+          .from('accounts')
+          .select('id')
+          .eq('name', 'sweetman_eth');
+        
+        const testArtistAccountIds = new Set(testArtistAccounts?.map(account => account.id) || []);
+        
+        // Filter out rooms with test artists
+        const allowedRoomIds = allowedRooms?.filter(room => !testArtistAccountIds.has(room.artist_id))?.map(room => room.id) || [];
+        console.log(`API ROUTE: Allowed rooms after filtering test artists: ${allowedRoomIds.length}`);
         
         if (allowedRoomIds.length > 0) {
           // Query active conversations (rooms with messages) filtered by allowed room IDs

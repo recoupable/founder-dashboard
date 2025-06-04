@@ -5,9 +5,7 @@ import 'chartjs-adapter-date-fns'; // Import the date adapter for side effects
 import { conversationService } from '@/lib/conversationService';
 import type { ConversationListItem, ConversationDetail, ConversationFilters } from '@/lib/conversationService';
 import ReactMarkdown from 'react-markdown';
-import parse from 'html-react-parser';
-import DOMPurify from 'dompurify';
-import { MagnifyingGlassIcon, CogIcon, CalendarIcon, ChatBubbleLeftRightIcon, DocumentChartBarIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, CogIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { createClient } from '@supabase/supabase-js';
 import { Line } from 'react-chartjs-2';
 import annotationPlugin from 'chartjs-plugin-annotation';
@@ -18,7 +16,7 @@ import {
   PointElement,
   LineElement,
   Title,
-  Tooltip,
+  Tooltip as ChartTooltip,
   Legend,
   TimeScale,
   TimeSeriesScale
@@ -29,7 +27,7 @@ ChartJS.register(
   PointElement, 
   LineElement, 
   Title, 
-  Tooltip, 
+  ChartTooltip, 
   Legend, 
   annotationPlugin,
   TimeScale,
@@ -81,10 +79,33 @@ interface SwitchProps {
   children?: React.ReactNode;
 }
 
-// Combined type for conversation with detail
-interface ConversationWithDetail extends ConversationListItem {
-  detail: ConversationDetail | null;
-  messageCount?: number;
+// Custom Tooltip component
+interface CustomTooltipProps {
+  content: string;
+  children: React.ReactNode;
+}
+
+function CustomTooltip({ content, children }: CustomTooltipProps) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <div className="relative inline-block">
+      <div
+        onMouseEnter={() => setIsVisible(true)}
+        onMouseLeave={() => setIsVisible(false)}
+      >
+        {children}
+      </div>
+      {isVisible && (
+        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-80 z-50">
+          <div className="bg-gray-900 text-white text-sm rounded-lg p-3 shadow-lg">
+            <div className="whitespace-pre-line">{content}</div>
+            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Switch({ checked, onChange, className, children }: SwitchProps) {
@@ -107,22 +128,8 @@ function getDateRangeForFilter(filter: string): { start: string | null, end: str
   let start: Date | null = null;
   const end: Date | null = now;
   switch (filter) {
-    case 'Day':
-    case 'Today':
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'Week':
-    case 'This Week':
-      start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      start.setHours(0, 0, 0, 0);
-      break;
-    case 'Month':
-    case 'This Month':
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
-    case 'All Time':
-      start = null;
+    case 'Last 24 Hours':
+      start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       break;
     case 'Last 7 Days':
       start = new Date(now);
@@ -132,9 +139,13 @@ function getDateRangeForFilter(filter: string): { start: string | null, end: str
       start = new Date(now);
       start.setDate(now.getDate() - 30);
       break;
-    case 'Last 90 Days':
+    case 'Last 3 Months':
       start = new Date(now);
-      start.setDate(now.getDate() - 90);
+      start.setMonth(now.getMonth() - 3);
+      break;
+    case 'Last 12 Months':
+      start = new Date(now);
+      start.setFullYear(now.getFullYear() - 1);
       break;
     default:
       start = null;
@@ -149,14 +160,13 @@ export default function ConversationsPage() {
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [excludeTestEmails, setExcludeTestEmails] = useState(true);
-  const [timeFilter, setTimeFilter] = useState('All Time');
+  const [timeFilter, setTimeFilter] = useState('Last 30 Days');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [totalUniqueUsers, setTotalUniqueUsers] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
   const [pageSize] = useState(100); // Fixed page size
   
   // Test email management state
@@ -171,28 +181,63 @@ export default function ConversationsPage() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
   
-  // Segment report counts state
-  const [segmentReportCounts, setSegmentReportCounts] = useState({ today: 0, week: 0, month: 0, prevDay: 0, prevWeek: 0, prevMonth: 0 });
-
-  // Conversation counts state for percentage calculations
-  const [conversationCounts, setConversationCounts] = useState({ 
-    today: 0, 
-    yesterday: 0, 
-    thisWeek: 0, 
-    lastWeek: 0, 
-    thisMonth: 0, 
-    lastMonth: 0 
+  // Active Users state
+  const [activeUsersData, setActiveUsersData] = useState({
+    activeUsers: 0,
+    previousActiveUsers: 0,
+    percentChange: 0,
+    changeDirection: 'neutral' as 'up' | 'down' | 'neutral'
   });
+  const [activeUsersLoading, setActiveUsersLoading] = useState(false);
 
-  type SegmentReport = { id: string; account_email: string; created_at: string };
-  const [segmentReports, setSegmentReports] = React.useState<SegmentReport[]>([]);
+  // Active Users Chart state
+  const [activeUsersChartData, setActiveUsersChartData] = useState<{
+    labels: string[];
+    data: number[];
+  } | null>(null);
+  const [activeUsersChartLoading, setActiveUsersChartLoading] = useState(false);
+  const [activeUsersChartError, setActiveUsersChartError] = useState<string | null>(null);
+
+  // PMF Survey Ready state
+  const [pmfSurveyReadyData, setPmfSurveyReadyData] = useState({
+    pmfSurveyReady: 0,
+    previousPmfSurveyReady: 0,
+    percentChange: 0,
+    changeDirection: 'neutral' as 'up' | 'down' | 'neutral'
+  });
+  const [pmfSurveyReadyLoading, setPmfSurveyReadyLoading] = useState(false);
+
+  // Power Users state
+  const [powerUsersData, setPowerUsersData] = useState({
+    powerUsers: 0,
+    previousPowerUsers: 0,
+    percentChange: 0,
+    changeDirection: 'neutral' as 'up' | 'down' | 'neutral'
+  });
+  const [powerUsersLoading, setPowerUsersLoading] = useState(false);
+
+  // Selected metric state (simplified to 3 metrics)
+  const [selectedMetric, setSelectedMetric] = useState<'activeUsers' | 'pmfSurveyReady' | 'powerUsers'>('activeUsers');
+
   const [messagesByUser, setMessagesByUser] = useState<Record<string, number>>({});
 
   // Add state for segmentReportsByUser
   const [segmentReportsByUser, setSegmentReportsByUser] = useState<Record<string, number>>({});
+  
+  // Add loading states for leaderboard data
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
   // Add state for leaderboard sort
-  const [leaderboardSort, setLeaderboardSort] = useState('messages');
+  const [leaderboardSort, setLeaderboardSort] = useState('activity');
+
+  // Add state for user filter
+  const [selectedUserFilter, setSelectedUserFilter] = useState<string | null>(null);
+
+  // Add state for leaderboard filtering
+  const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
+  const [pmfSurveyReadyUsers, setPmfSurveyReadyUsers] = useState<string[]>([]);
+  const [powerUsersEmails, setPowerUsersEmails] = useState<string[]>([]);
+  const [leaderboardFilterLoading, setLeaderboardFilterLoading] = useState(false);
 
   const [showChart, setShowChart] = useState(false);
   const [chartData, setChartData] = useState<MyChartData | null>(null);
@@ -210,7 +255,7 @@ export default function ConversationsPage() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, excludeTestEmails, timeFilter]);
+  }, [searchQuery, excludeTestEmails, timeFilter, selectedUserFilter]);
 
   React.useEffect(() => {
     async function fetchReports() {
@@ -221,7 +266,10 @@ export default function ConversationsPage() {
       const { data, error } = await supabase
         .from('segment_reports')
         .select('id, account_email, created_at');
-      if (!error && data) setSegmentReports(data);
+      if (!error && data) {
+        // This data is not used in the current implementation
+        console.log('Segment reports fetched:', data.length);
+      }
     }
     fetchReports();
   }, []);
@@ -254,7 +302,8 @@ export default function ConversationsPage() {
           excludeTestEmails,
           timeFilter,
           page: currentPage,
-          limit: pageSize
+          limit: pageSize,
+          userFilter: selectedUserFilter || undefined
         };
         
         console.log('Fetching conversations with filters:', filters);
@@ -270,21 +319,15 @@ export default function ConversationsPage() {
         // Restore original console.log
         console.log = originalConsoleLog;
         
-        // Defensive: ensure conversations is always an array
-        if (Array.isArray(result.conversations)) {
+        // Update conversation counts if available in the response
+        if (result.conversations) {
           setConversations(result.conversations);
-        } else {
-          setConversations([]);
         }
         setTotalPages(result.totalPages);
         setTotalCount(result.totalCount);
         setTotalUniqueUsers(result.totalUniqueUsers);
-        setHasMore(result.hasMore);
         
-        // Update conversation counts if available in the response
-        if (result.conversationCounts) {
-          setConversationCounts(result.conversationCounts);
-        }
+        // No longer need to set conversation counts since we use active users now
       } catch (err) {
         console.error('Failed to load conversations:', err);
         setError('Failed to load conversations. Please try again.');
@@ -294,7 +337,7 @@ export default function ConversationsPage() {
     };
     
     loadConversations();
-  }, [searchQuery, excludeTestEmails, timeFilter, currentPage, pageSize]);
+  }, [searchQuery, excludeTestEmails, timeFilter, currentPage, pageSize, selectedUserFilter]);
   
   // Load conversation detail when selection changes
   useEffect(() => {
@@ -306,10 +349,20 @@ export default function ConversationsPage() {
       
       try {
         const result = await conversationService.getConversationDetail(selectedConversation);
-        setConversationDetail(result);
+        if (result === null) {
+          // Conversation was blocked (likely a test account)
+          console.log('Conversation blocked or not found:', selectedConversation);
+          setConversationDetail(null);
+          // Clear the selection to prevent infinite loading
+          setSelectedConversation(null);
+        } else {
+          setConversationDetail(result);
+        }
       } catch (err) {
         console.error('Failed to load conversation detail:', err);
         setError('Failed to load conversation details. Please try again.');
+        // Clear the selection on error
+        setSelectedConversation(null);
       }
     };
     
@@ -437,143 +490,9 @@ export default function ConversationsPage() {
     }
   };
 
-  // Only filter out test emails for the summary cards
-  const testEmailFilteredConversations = conversations.filter(conv => {
-    if (testEmails.includes(conv.account_email)) return false;
-    if (conv.account_email.includes('@example.com')) return false;
-    if (conv.account_email.includes('+')) return false;
-    return true;
-  });
-
-  // Filter conversations based on time filter and test emails
-  const timeFilteredConversations = conversations.filter(conv => {
-    if (timeFilter === 'All Time') return true;
-    const now = new Date();
-    const filterDate = new Date();
-    switch (timeFilter) {
-      case 'Last 7 Days':
-        filterDate.setDate(now.getDate() - 7);
-        break;
-      case 'Last 30 Days':
-        filterDate.setDate(now.getDate() - 30);
-        break;
-      case 'Last 90 Days':
-        filterDate.setDate(now.getDate() - 90);
-        break;
-      default:
-        return true;
-    }
-    return new Date(conv.created_at) >= filterDate;
-  });
-
-  const filteredConversations = excludeTestEmails
-    ? timeFilteredConversations.filter(conv => {
-        if (testEmails.includes(conv.account_email)) return false;
-        if (conv.account_email.includes('@example.com')) return false;
-        if (conv.account_email.includes('+')) return false;
-        return true;
-      })
-    : timeFilteredConversations;
-
-  useEffect(() => {
-    async function fetchSegmentReportCounts() {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-      if (!supabaseUrl || !supabaseAnonKey) {
-        console.error('Supabase environment variables are not set.');
-        return;
-      }
-      const supabase = createClient(supabaseUrl, supabaseAnonKey);
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfYesterday = new Date(startOfToday);
-      startOfYesterday.setDate(startOfToday.getDate() - 1);
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
-      const startOfPrevWeek = new Date(startOfWeek);
-      startOfPrevWeek.setDate(startOfWeek.getDate() - 7);
-      const endOfPrevWeek = new Date(startOfWeek);
-      endOfPrevWeek.setMilliseconds(-1);
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-
-      // Log date ranges for debugging
-      console.log('Segment Report Date Ranges:');
-      console.log('Today:', startOfToday.toISOString());
-      console.log('Yesterday:', startOfYesterday.toISOString(), 'to', startOfToday.toISOString());
-      console.log('This Week:', startOfWeek.toISOString());
-      console.log('Prev Week:', startOfPrevWeek.toISOString(), 'to', startOfWeek.toISOString());
-      console.log('This Month:', startOfMonth.toISOString());
-      console.log('Prev Month:', startOfPrevMonth.toISOString(), 'to', startOfMonth.toISOString());
-
-      // Today
-      const todayRes = await supabase
-        .from('segment_reports')
-        .select('id', { count: 'exact', head: true })
-        .gte('updated_at', startOfToday.toISOString());
-      const todayCount = todayRes.count;
-      console.log('[SegmentReports] Today query result:', todayRes);
-      // Yesterday
-      const prevDayRes = await supabase
-        .from('segment_reports')
-        .select('id', { count: 'exact', head: true })
-        .gte('updated_at', startOfYesterday.toISOString())
-        .lt('updated_at', startOfToday.toISOString());
-      const prevDayCount = prevDayRes.count;
-      console.log('[SegmentReports] Yesterday query result:', prevDayRes);
-      // This week
-      const weekRes = await supabase
-        .from('segment_reports')
-        .select('id', { count: 'exact', head: true })
-        .gte('updated_at', startOfWeek.toISOString());
-      const weekCount = weekRes.count;
-      console.log('[SegmentReports] This week query result:', weekRes);
-      // Previous week
-      const prevWeekRes = await supabase
-        .from('segment_reports')
-        .select('id', { count: 'exact', head: true })
-        .gte('updated_at', startOfPrevWeek.toISOString())
-        .lt('updated_at', startOfWeek.toISOString());
-      const prevWeekCount = prevWeekRes.count;
-      console.log('[SegmentReports] Prev week query result:', prevWeekRes);
-      // This month
-      const monthRes = await supabase
-        .from('segment_reports')
-        .select('id', { count: 'exact', head: true })
-        .gte('updated_at', startOfMonth.toISOString());
-      const monthCount = monthRes.count;
-      console.log('[SegmentReports] This month query result:', monthRes);
-      // Previous month
-      const prevMonthRes = await supabase
-        .from('segment_reports')
-        .select('id', { count: 'exact', head: true })
-        .gte('updated_at', startOfPrevMonth.toISOString())
-        .lt('updated_at', startOfMonth.toISOString());
-      const prevMonthCount = prevMonthRes.count;
-      console.log('[SegmentReports] Prev month query result:', prevMonthRes);
-
-      // Log final values for percent change
-      console.log('[SegmentReports] Final counts for percent change:', {
-        today: todayCount, prevDay: prevDayCount,
-        week: weekCount, prevWeek: prevWeekCount,
-        month: monthCount, prevMonth: prevMonthCount
-      });
-
-      setSegmentReportCounts({
-        today: todayCount || 0,
-        week: weekCount || 0,
-        month: monthCount || 0,
-        prevDay: prevDayCount || 0,
-        prevWeek: prevWeekCount || 0,
-        prevMonth: prevMonthCount || 0,
-      });
-    }
-    fetchSegmentReportCounts();
-  }, []);
-
   // Fetch message counts from the API when timeFilter changes
   useEffect(() => {
+    setLeaderboardLoading(true);
     const { start, end } = getDateRangeForFilter(timeFilter);
     let url = '/api/conversations/message-counts';
     if (start && end) {
@@ -587,7 +506,8 @@ export default function ConversationsPage() {
           map[row.account_email] = row.message_count;
         }
         setMessagesByUser(map);
-      });
+      })
+      .finally(() => setLeaderboardLoading(false));
   }, [timeFilter]);
 
   // Fetch segment report counts from the API when timeFilter changes
@@ -609,19 +529,6 @@ export default function ConversationsPage() {
         setSegmentReportsByUser(map);
       });
   }, [timeFilter]);
-
-  // Helper for percent change
-  function getPercentChange(current: number, previous: number) {
-    if (previous === 0 && current > 0) return 'N/A';
-    if (previous === 0 && current === 0) return '0%';
-    return `${(((current - previous) / previous) * 100).toFixed(0)}%`;
-  }
-  function getArrowAndColor(current: number, previous: number) {
-    if (previous === 0) return { arrow: '', color: 'text-gray-400' };
-    if (current > previous) return { arrow: '▲', color: 'text-green-600' };
-    if (current < previous) return { arrow: '▼', color: 'text-red-600' };
-    return { arrow: '', color: 'text-gray-500' };
-  }
 
   useEffect(() => {
     if (!showChart) return;
@@ -693,6 +600,157 @@ export default function ConversationsPage() {
       setIsSavingAnnotation(false);
     }
   };
+
+  // Fetch active users data when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchActiveUsers = async () => {
+      setActiveUsersLoading(true);
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        const response = await fetch(`/api/active-users?${params}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setActiveUsersData(data);
+        } else {
+          console.error('Failed to fetch active users:', data.error);
+        }
+      } catch (error) {
+        console.error('Error fetching active users:', error);
+      } finally {
+        setActiveUsersLoading(false);
+      }
+    };
+    
+    fetchActiveUsers();
+  }, [timeFilter, excludeTestEmails]);
+
+  // Fetch active users chart data when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchActiveUsersChart = async () => {
+      setActiveUsersChartLoading(true);
+      setActiveUsersChartError(null);
+      
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        const response = await fetch(`/api/active-users-chart?${params}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setActiveUsersChartData(data);
+        } else {
+          console.error('Failed to fetch active users chart:', data.error);
+          setActiveUsersChartError('Failed to load chart data');
+        }
+      } catch (error) {
+        console.error('Error fetching active users chart:', error);
+        setActiveUsersChartError('Failed to load chart data');
+      } finally {
+        setActiveUsersChartLoading(false);
+      }
+    };
+    
+    fetchActiveUsersChart();
+  }, [timeFilter, excludeTestEmails]);
+
+  // Fetch PMF Survey Ready data when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchPmfSurveyReady = async () => {
+      setPmfSurveyReadyLoading(true);
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        const response = await fetch(`/api/pmf-survey-ready?${params}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setPmfSurveyReadyData(data);
+        } else {
+          console.error('Failed to fetch PMF Survey Ready:', data.error);
+        }
+      } catch (error) {
+        console.error('Error fetching PMF Survey Ready:', error);
+      } finally {
+        setPmfSurveyReadyLoading(false);
+      }
+    };
+    
+    fetchPmfSurveyReady();
+  }, [timeFilter, excludeTestEmails]);
+
+  // Fetch power users data when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchPowerUsers = async () => {
+      setPowerUsersLoading(true);
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        const response = await fetch(`/api/power-users?${params}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setPowerUsersData(data);
+        } else {
+          console.error('Failed to fetch power users:', data.error);
+        }
+      } catch (error) {
+        console.error('Error fetching power users:', error);
+      } finally {
+        setPowerUsersLoading(false);
+      }
+    };
+    
+    fetchPowerUsers();
+  }, [timeFilter, excludeTestEmails]);
+
+  // Fetch leaderboard filter data (PMF Survey Ready and Power Users) when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchLeaderboardFilterData = async () => {
+      if (leaderboardFilter === 'all') return;
+      
+      setLeaderboardFilterLoading(true);
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        if (leaderboardFilter === 'pmf-ready') {
+          const response = await fetch(`/api/pmf-survey-ready-users?${params}`);
+          const data = await response.json();
+          if (response.ok && data.users) {
+            setPmfSurveyReadyUsers(data.users);
+          }
+        } else if (leaderboardFilter === 'power-users') {
+          const response = await fetch(`/api/power-users-emails?${params}`);
+          const data = await response.json();
+          if (response.ok && data.emails) {
+            setPowerUsersEmails(data.emails);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching leaderboard filter data:', error);
+      } finally {
+        setLeaderboardFilterLoading(false);
+      }
+    };
+    
+    fetchLeaderboardFilterData();
+  }, [timeFilter, excludeTestEmails, leaderboardFilter]);
 
   return (
     <main className="p-4 sm:p-8">
@@ -877,664 +935,609 @@ export default function ConversationsPage() {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-6">User Conversations</h1>
-
-            {/* Summary Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
-              {/* Active Conversations Today */}
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
-                <div className="flex items-center mb-2">
-                  <span className="text-blue-600 mr-2">
-                    <ChatBubbleLeftRightIcon className="h-6 w-6" />
-                  </span>
-                  <span className="text-sm font-semibold text-blue-700">Active Conversations Today</span>
-                </div>
-                <div className="text-4xl font-extrabold text-blue-900 mb-1">{conversationCounts.today}</div>
-                <div className="text-xs text-blue-500 mb-2">Rooms with messages since midnight</div>
-              </div>
-              {/* Active Conversations This Week */}
-              <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
-                <div className="flex items-center mb-2">
-                  <span className="text-green-600 mr-2">
-                    <CalendarIcon className="h-6 w-6" />
-                  </span>
-                  <span className="text-sm font-semibold text-green-700">Active Conversations This Week</span>
-                </div>
-                <div className="text-4xl font-extrabold text-green-900 mb-1">{conversationCounts.thisWeek}</div>
-                <div className="text-xs text-green-500 mb-2">Rooms with messages since Sunday</div>
-                <div className="flex items-center text-xs">
-                  {(() => {
-                    const curr = conversationCounts.thisWeek;
-                    const prev = conversationCounts.lastWeek;
-                    let percent = null;
-                    if (prev === 0 && curr > 0) percent = 'N/A';
-                    else if (prev === 0 && curr === 0) percent = '0%';
-                    else percent = `${(((curr - prev) / prev) * 100).toFixed(0)}%`;
-                    const isUp = prev !== 0 && curr > prev;
-                    const isDown = prev !== 0 && curr < prev;
-                    return (
-                      <>
-                        {isUp && <span className="text-green-600 font-bold mr-1">▲</span>}
-                        {isDown && <span className="text-red-600 font-bold mr-1">▼</span>}
-                        <span className={isUp ? 'text-green-600 font-bold' : isDown ? 'text-red-600 font-bold' : 'text-gray-500'}>{percent}</span>
-                        <span className="ml-1 text-gray-400">from last week</span>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-              {/* Active Conversations This Month */}
-              <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 border border-yellow-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
-                <div className="flex items-center mb-2">
-                  <span className="text-yellow-600 mr-2">
-                    <CalendarIcon className="h-6 w-6" />
-                  </span>
-                  <span className="text-sm font-semibold text-yellow-700">Active Conversations This Month</span>
-                </div>
-                <div className="text-4xl font-extrabold text-yellow-900 mb-1">{conversationCounts.thisMonth}</div>
-                <div className="text-xs text-yellow-500 mb-2">Rooms with messages since 1st of month</div>
-                <div className="flex items-center text-xs">
-                  {(() => {
-                    const curr = conversationCounts.thisMonth;
-                    const prev = conversationCounts.lastMonth;
-                    let percent = null;
-                    if (prev === 0 && curr > 0) percent = 'N/A';
-                    else if (prev === 0 && curr === 0) percent = '0%';
-                    else percent = `${(((curr - prev) / prev) * 100).toFixed(0)}%`;
-                    const isUp = prev !== 0 && curr > prev;
-                    const isDown = prev !== 0 && curr < prev;
-                    return (
-                      <>
-                        {isUp && <span className="text-green-600 font-bold mr-1">▲</span>}
-                        {isDown && <span className="text-red-600 font-bold mr-1">▼</span>}
-                        <span className={isUp ? 'text-green-600 font-bold' : isDown ? 'text-red-600 font-bold' : 'text-gray-500'}>{percent}</span>
-                        <span className="ml-1 text-gray-400">from last month</span>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-              {/* Segment Reports Today */}
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
-                <div className="flex items-center mb-2">
-                  <span className="text-purple-600 mr-2">
-                    <DocumentChartBarIcon className="h-6 w-6" />
-                  </span>
-                  <span className="text-sm font-semibold text-purple-700">Segment Reports Today</span>
-                </div>
-                <div className="text-4xl font-extrabold text-purple-900 mb-1">{segmentReportCounts.today}</div>
-                <div className="text-xs text-purple-500 mb-2">Created since midnight</div>
-                <div className="flex items-center text-xs">
-                  {getPercentChange(segmentReportCounts.today, segmentReportCounts.prevDay) === 'N/A' ? (
-                    <span className="text-gray-400">N/A</span>
-                  ) : (
-                    <>
-                      {getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).arrow && (
-                        <span className={`${getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).color} font-bold mr-1`}>
-                          {getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).arrow}
-                        </span>
-                      )}
-                      <span className={`${getArrowAndColor(segmentReportCounts.today, segmentReportCounts.prevDay).color} font-bold`}>
-                        {getPercentChange(segmentReportCounts.today, segmentReportCounts.prevDay)}
-                      </span>
-                      <span className="ml-1 text-gray-400">from yesterday</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              {/* Segment Reports This Week */}
-              <div className="bg-gradient-to-br from-pink-50 to-pink-100 border border-pink-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
-                <div className="flex items-center mb-2">
-                  <span className="text-pink-600 mr-2">
-                    <DocumentChartBarIcon className="h-6 w-6" />
-                  </span>
-                  <span className="text-sm font-semibold text-pink-700">Segment Reports This Week</span>
-                </div>
-                <div className="text-4xl font-extrabold text-pink-900 mb-1">{segmentReportCounts.week}</div>
-                <div className="text-xs text-pink-500 mb-2">Since Sunday</div>
-                <div className="flex items-center text-xs">
-                  {getPercentChange(segmentReportCounts.week, segmentReportCounts.prevWeek) === 'N/A' ? (
-                    <span className="text-gray-400">N/A</span>
-                  ) : (
-                    <>
-                      {getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).arrow && (
-                        <span className={`${getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).color} font-bold mr-1`}>
-                          {getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).arrow}
-                        </span>
-                      )}
-                      <span className={`${getArrowAndColor(segmentReportCounts.week, segmentReportCounts.prevWeek).color} font-bold`}>
-                        {getPercentChange(segmentReportCounts.week, segmentReportCounts.prevWeek)}
-                      </span>
-                      <span className="ml-1 text-gray-400">from last week</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              {/* Segment Reports This Month */}
-              <div className="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-2xl shadow-md p-6 flex flex-col items-start transition-transform hover:scale-105 hover:shadow-lg">
-                <div className="flex items-center mb-2">
-                  <span className="text-orange-600 mr-2">
-                    <DocumentChartBarIcon className="h-6 w-6" />
-                  </span>
-                  <span className="text-sm font-semibold text-orange-700">Segment Reports This Month</span>
-                </div>
-                <div className="text-4xl font-extrabold text-orange-900 mb-1">{segmentReportCounts.month}</div>
-                <div className="text-xs text-orange-500 mb-2">Since 1st of month</div>
-                <div className="flex items-center text-xs">
-                  {getPercentChange(segmentReportCounts.month, segmentReportCounts.prevMonth) === 'N/A' ? (
-                    <span className="text-gray-400">N/A</span>
-                  ) : (
-                    <>
-                      {getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).arrow && (
-                        <span className={`${getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).color} font-bold mr-1`}>
-                          {getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).arrow}
-                        </span>
-                      )}
-                      <span className={`${getArrowAndColor(segmentReportCounts.month, segmentReportCounts.prevMonth).color} font-bold`}>
-                        {getPercentChange(segmentReportCounts.month, segmentReportCounts.prevMonth)}
-                      </span>
-                      <span className="ml-1 text-gray-400">from last month</span>
-                    </>
-                  )}
-                </div>
+            {/* Page Header with Master Time Filter */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4 sm:mb-0">User Conversations</h1>
+              
+              {/* Master Time Filter */}
+              <div className="flex items-center gap-4">
+                <label htmlFor="master-time-filter" className="font-medium text-sm text-gray-700">
+                  Time Period:
+                </label>
+                <select
+                  id="master-time-filter"
+                  value={timeFilter}
+                  onChange={e => setTimeFilter(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="Last 24 Hours">Last 24 Hours</option>
+                  <option value="Last 7 Days">Last 7 Days</option>
+                  <option value="Last 30 Days">Last 30 Days</option>
+                  <option value="Last 3 Months">Last 3 Months</option>
+                  <option value="Last 12 Months">Last 12 Months</option>
+                </select>
               </div>
             </div>
-            
-            {/* User Leaderboard (Time Filtered) */}
+
+            {/* Analytics Metrics Cards (Vercel-style) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {/* Active Users Card */}
+              <CustomTooltip content="Active Users are users who have sent at least one message or created at least one segment report during the selected time period. This metric helps track overall product engagement and user activation.">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetric('activeUsers')}
+                  className={`bg-white rounded-2xl shadow-md p-6 text-left transition-all w-full ${
+                    selectedMetric === 'activeUsers' ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-lg'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-500">Active Users</h3>
+                    </div>
+                    <div className="text-blue-600">
+                      <ChatBubbleLeftRightIcon className="h-5 w-5" />
+                    </div>
+                  </div>
+                  
+                  {activeUsersLoading ? (
+                    <div className="animate-pulse">
+                      <div className="h-8 w-16 bg-gray-200 rounded mb-2"></div>
+                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-3xl font-bold text-gray-900 mb-1">{activeUsersData.activeUsers}</div>
+                      <div className="flex items-center text-sm">
+                        {activeUsersData.changeDirection === 'up' && (
+                          <span className="text-green-600 font-medium">▲ {Math.abs(activeUsersData.percentChange)}%</span>
+                        )}
+                        {activeUsersData.changeDirection === 'down' && (
+                          <span className="text-red-600 font-medium">▼ {Math.abs(activeUsersData.percentChange)}%</span>
+                        )}
+                        {activeUsersData.changeDirection === 'neutral' && (
+                          <span className="text-gray-500 font-medium">— 0%</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </button>
+              </CustomTooltip>
+
+              {/* Power Users Card */}
+              <CustomTooltip content="Power Users are your most engaged users with 10+ total actions (messages + reports) in the selected period. These users demonstrate high product engagement through consistent usage.">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetric('powerUsers')}
+                  className={`bg-white rounded-2xl shadow-md p-6 text-left transition-all w-full ${
+                    selectedMetric === 'powerUsers' ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-lg'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-500">Power Users</h3>
+                    </div>
+                    <div className="text-blue-600">
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  {powerUsersLoading ? (
+                    <div className="animate-pulse">
+                      <div className="h-8 w-16 bg-gray-200 rounded mb-2"></div>
+                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-3xl font-bold text-gray-900 mb-1">{powerUsersData.powerUsers}</div>
+                      <div className="flex items-center text-sm">
+                        {powerUsersData.changeDirection === 'up' && (
+                          <span className="text-green-600 font-medium">▲ {Math.abs(powerUsersData.percentChange)}%</span>
+                        )}
+                        {powerUsersData.changeDirection === 'down' && (
+                          <span className="text-red-600 font-medium">▼ {Math.abs(powerUsersData.percentChange)}%</span>
+                        )}
+                        {powerUsersData.changeDirection === 'neutral' && (
+                          <span className="text-gray-500 font-medium">— 0%</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </button>
+              </CustomTooltip>
+
+              {/* PMF Survey Ready Card */}
+              <CustomTooltip content="PMF Survey Ready users meet Sean Ellis criteria for product-market fit surveys: they have used your product at least twice (2+ conversation sessions) AND have been active in the last 14 days. When this reaches 30-50 users, you should send PMF surveys.">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMetric('pmfSurveyReady')}
+                  className={`bg-white rounded-2xl shadow-md p-6 text-left transition-all w-full ${
+                    selectedMetric === 'pmfSurveyReady' ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-lg'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-500">PMF Survey Ready</h3>
+                    </div>
+                    <div className="text-blue-600">
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  {pmfSurveyReadyLoading ? (
+                    <div className="animate-pulse">
+                      <div className="h-8 w-16 bg-gray-200 rounded mb-2"></div>
+                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-3xl font-bold text-gray-900 mb-1">{pmfSurveyReadyData.pmfSurveyReady}</div>
+                      <div className="flex items-center text-sm">
+                        {pmfSurveyReadyData.changeDirection === 'up' && (
+                          <span className="text-green-600 font-medium">▲ {Math.abs(pmfSurveyReadyData.percentChange)}%</span>
+                        )}
+                        {pmfSurveyReadyData.changeDirection === 'down' && (
+                          <span className="text-red-600 font-medium">▼ {Math.abs(pmfSurveyReadyData.percentChange)}%</span>
+                        )}
+                        {pmfSurveyReadyData.changeDirection === 'neutral' && (
+                          <span className="text-gray-500 font-medium">— 0%</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </button>
+              </CustomTooltip>
+            </div>
+
+            {/* Selected Metric Chart */}
             <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
-                <h2 className="text-2xl font-bold">User Leaderboard</h2>
-                <div className="flex gap-2 items-center">
-                  <label htmlFor="leaderboard-time" className="mr-2 font-medium text-sm">Period:</label>
+              <h2 className="text-xl font-semibold mb-4">
+                {selectedMetric === 'activeUsers' && 'Active Users Trend'}
+                {selectedMetric === 'powerUsers' && 'Power Users Trend'}
+                {selectedMetric === 'pmfSurveyReady' && 'PMF Survey Ready Trend'}
+              </h2>
+              
+              {(selectedMetric === 'activeUsers' && activeUsersChartLoading) ? (
+                <div className="text-center text-gray-500 py-8">Loading chart...</div>
+              ) : (selectedMetric === 'activeUsers' && activeUsersChartError) ? (
+                <div className="text-center text-red-500 py-8">
+                  {activeUsersChartError}
+                </div>
+              ) : (selectedMetric === 'activeUsers' && activeUsersChartData) ? (
+                <div className="h-64">
+                  <Line
+                    data={{
+                      labels: activeUsersChartData.labels,
+                      datasets: [{
+                        label: 'Active Users',
+                        data: activeUsersChartData.data,
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.1
+                      }]
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: { display: false },
+                        title: { display: false }
+                      },
+                      scales: {
+                        y: { beginAtZero: true }
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  {selectedMetric !== 'activeUsers' 
+                    ? `Chart data for ${selectedMetric === 'powerUsers' ? 'Power Users' : 'PMF Survey Ready'} is not yet available. Currently only Active Users chart is implemented.` 
+                    : 'No chart data available'}
+                </div>
+              )}
+            </div>
+
+            {/* User Leaderboard Section */}
+            <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold">User Leaderboard</h2>
+                <div className="flex items-center gap-4">
+                  {/* Filter selector */}
                   <select
-                    id="leaderboard-time"
-                    value={timeFilter}
-                    onChange={e => setTimeFilter(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm"
+                    value={leaderboardFilter}
+                    onChange={(e) => setLeaderboardFilter(e.target.value as 'all' | 'pmf-ready' | 'power-users')}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    title="Filter leaderboard by user segment"
                   >
-                    <option value="Day">Day</option>
-                    <option value="Week">Week</option>
-                    <option value="Month">Month</option>
-                    <option value="All Time">All Time</option>
+                    <option value="all">All Users</option>
+                    <option value="pmf-ready">PMF Survey Ready</option>
+                    <option value="power-users">Power Users</option>
                   </select>
-                  <label htmlFor="leaderboard-sort" className="ml-4 mr-2 font-medium text-sm">Sort by:</label>
+                  
+                  {/* Sort selector */}
                   <select
-                    id="leaderboard-sort"
                     value={leaderboardSort}
-                    onChange={e => setLeaderboardSort(e.target.value)}
-                    className="border rounded px-2 py-1 text-sm"
+                    onChange={(e) => setLeaderboardSort(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    title="Sort leaderboard by messages, reports, or total activity"
                   >
-                    <option value="messages">Messages Sent</option>
-                    <option value="reports">Segment Reports</option>
+                    <option value="messages">Sort by Messages</option>
+                    <option value="reports">Sort by Reports</option>
+                    <option value="activity">Sort by All Activity</option>
                   </select>
                 </div>
               </div>
-              {(() => {
-                // Helper: filter out test emails
-                const isNotTestEmail = (email: string): boolean => {
-                  if (!email) return false;
-                  if (testEmails.includes(email)) return false;
-                  if (email.includes('@example.com')) return false;
-                  if (email.includes('+')) return false;
-                  return true;
-                };
-                // 1. Aggregate rooms created in the selected period by user
-                const { start: leaderboardStart } = getDateRangeForFilter(timeFilter);
-                const roomsByUser: Record<string, number> = {};
-                for (const conv of testEmailFilteredConversations) {
-                  const email = conv.account_email;
-                  if (!isNotTestEmail(email)) continue;
-                  const created = new Date(conv.created_at);
-                  if (!leaderboardStart || created >= new Date(leaderboardStart)) {
-                    roomsByUser[email] = (roomsByUser[email] || 0) + 1;
-                  }
-                }
-                // 2. Aggregate messages sent in the selected period by user
-                // Use the messagesByUser state instead
-                // 3. Aggregate segment reports generated in the selected period by user
-                const reportsByUser: Record<string, number> = {};
-                for (const report of segmentReports) {
-                  const email = report.account_email;
-                  if (!isNotTestEmail(email)) continue;
-                  const created = new Date(report.created_at);
-                  if (!leaderboardStart || created >= new Date(leaderboardStart)) {
-                    reportsByUser[email] = (reportsByUser[email] || 0) + 1;
-                  }
-                }
-                // 4. Combine scores
-                const allUsers = new Set([
-                  ...Object.keys(roomsByUser),
-                  ...Object.keys(messagesByUser),
-                  ...Object.keys(reportsByUser)
-                ]);
-                const leaderboard = Array.from(allUsers)
-                  .filter(isNotTestEmail)
-                  .map(email => {
-                    return {
-                      email,
-                      rooms: roomsByUser[email] || 0,
-                      messages: messagesByUser[email] || 0,
-                      reports: segmentReportsByUser[email] || 0,
-                      score: (roomsByUser[email] || 0) + (messagesByUser[email] || 0) + (segmentReportsByUser[email] || 0)
-                    };
-                  })
-                  .filter(u => u.score > 0);
-                leaderboard.sort((a, b) => {
-                  if (leaderboardSort === 'messages') {
-                    return b.messages - a.messages;
-                  }
-                  if (leaderboardSort === 'reports') {
-                    return b.reports - a.reports;
-                  }
-                  return b.score - a.score;
-                });
-                return (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-4 py-2 text-left font-semibold">User Email</th>
-                          <th className="px-4 py-2 text-center font-semibold">Messages</th>
-                          <th className="px-4 py-2 text-center font-semibold">Rooms Created</th>
-                          <th className="px-4 py-2 text-center font-semibold">Segment Reports</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {leaderboard.map((user, idx) => (
-                          <tr key={user.email} className={idx < 3 ? 'bg-yellow-50' : ''}>
-                            <td className="px-4 py-2 font-mono text-xs sm:text-sm">{user.email}</td>
-                            <td className="px-4 py-2 text-center">{user.messages}</td>
-                            <td className="px-4 py-2 text-center">{user.rooms}</td>
-                            <td className="px-4 py-2 text-center">{user.reports}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {leaderboard.length === 0 && (
-                      <div className="text-center text-gray-400 py-8">No user activity in the selected period yet.</div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-            
-            <div className="flex flex-col lg:flex-row gap-6">
-              {/* Left panel - Conversation List */}
-              <div className="w-full lg:w-2/5 bg-white rounded-lg shadow-sm p-4 border">
-                <div className="flex-1 overflow-auto pr-4">
-                  {/* Conversation list header */}
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="text-lg font-bold">Rooms</div>
-                    <div className="flex space-x-2">
-                      <div className="text-sm bg-gray-100 px-2 py-1 rounded-md">
-                        {totalCount} total rooms
-                      </div>
-                      <div className="text-sm bg-gray-100 px-2 py-1 rounded-md">
-                        {totalUniqueUsers} total users
-                      </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            // Show loading indicator
-                            setLoading(true);
-                            
-                            // First, create headers for our CSV
-                            const headers = [
-                              'Room ID',
-                              'Account Email',
-                              'Account Name',
-                              'Artist Name',
-                              'Topic',
-                              'Created At',
-                              'Last Message Date',
-                              'Message Count',
-                              'Conversation'
-                            ];
-                            
-                            // Fetch conversation details for all rooms
-                            const conversationDetails: ConversationWithDetail[] = await Promise.all(
-                              filteredConversations.map(async (conv) => {
-                                try {
-                                  const detail = await conversationService.getConversationDetail(conv.room_id);
-                                  return {
-                                    ...conv,
-                                    detail
-                                  };
-                                } catch (err: unknown) {
-                                  console.error(`Error fetching details for room ${conv.room_id}:`, err);
-                                  return {
-                                    ...conv,
-                                    detail: null
-                                  };
-                                }
-                              })
-                            );
-                            
-                            // Create CSV rows
-                            const csvRows = [
-                              headers.join(','), // Header row
-                              ...conversationDetails.map(conv => {
-                                // Process the messages if available
-                                let conversationText = '';
-                                
-                                if (conv.detail?.messages) {
-                                  conversationText = conv.detail.messages
-                                    .map(msg => {
-                                      // Format as: Role (Time): Content
-                                      const timestamp = new Date(msg.created_at).toLocaleString();
-                                      return `${msg.role.toUpperCase()} (${timestamp}): ${msg.content.replace(/"/g, '""').replace(/\n/g, ' ')}`;
-                                    })
-                                    .join('\n');
-                                }
-                                
-                                // Format each conversation as a CSV row
-                                const values = [
-                                  conv.room_id,
-                                  `"${conv.account_email.replace(/"/g, '""')}"`, // Escape quotes in email addresses
-                                  `"${(conv.account_name || '').replace(/"/g, '""')}"`,
-                                  `"${(conv.artist_name || '').replace(/"/g, '""')}"`,
-                                  `"${(conv.topic || '').replace(/"/g, '""')}"`,
-                                  conv.created_at ? new Date(conv.created_at).toISOString() : '',
-                                  conv.last_message_date ? new Date(conv.last_message_date).toISOString() : '',
-                                  // Safe access to messageCount with fallback
-                                  conv.messageCount || conv.detail?.messages?.length || 0,
-                                  `"${conversationText.replace(/"/g, '""')}"`
-                                ];
-                                return values.join(',');
-                              })
-                            ];
 
-                            const csvContent = csvRows.join('\n');
-                            
-                            // Create a blob and trigger download
-                            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `all-conversations-with-messages-${new Date().toISOString().split('T')[0]}.csv`;
-                            
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                          } catch (error: unknown) {
-                            console.error("Error exporting conversations:", error);
-                            alert("There was an error exporting conversations. See console for details.");
-                          } finally {
-                            setLoading(false);
-                          }
-                        }}
-                        className="text-sm bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded-md"
-                        disabled={loading}
-                      >
-                        {loading ? "Exporting..." : "Export All to CSV"}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Search and filter controls */}
-                  <div className="mb-4">
-                    <div className="relative mb-2">
-                      <input
-                        type="text"
-                        placeholder="Search by email or artist"
-                        className="w-full p-2 pr-10 border rounded-md"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                      />
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                        <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+              {(leaderboardLoading || leaderboardFilterLoading) ? (
+                <div className="space-y-4">
+                  {[...Array(10)].map((_, i) => (
+                    <div key={i} className="animate-pulse flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+                        <div className="h-4 w-48 bg-gray-200 rounded"></div>
                       </div>
+                      <div className="h-4 w-16 bg-gray-200 rounded"></div>
                     </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    // Create combined user data
+                    const userMap = new Map<string, { email: string; messages: number; reports: number; totalActivity: number }>();
                     
-                    <div className="flex justify-between items-center">
-                      <select
-                        className="p-2 border rounded-md"
-                        value={timeFilter}
-                        onChange={(e) => setTimeFilter(e.target.value)}
-                        aria-label="Time filter"
+                    // Add message counts
+                    Object.entries(messagesByUser).forEach(([email, count]) => {
+                      if (!userMap.has(email)) {
+                        userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+                      }
+                      const user = userMap.get(email)!;
+                      user.messages = count;
+                      user.totalActivity += count;
+                    });
+                    
+                    // Add segment report counts
+                    Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+                      if (!userMap.has(email)) {
+                        userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+                      }
+                      const user = userMap.get(email)!;
+                      user.reports = count;
+                      user.totalActivity += count;
+                    });
+                    
+                    // Convert to array and filter out test emails if needed
+                    let users = Array.from(userMap.values());
+                    
+                    if (excludeTestEmails) {
+                      users = users.filter(user => {
+                        if (testEmails.includes(user.email)) return false;
+                        if (user.email.includes('@example.com')) return false;
+                        if (user.email.includes('+')) return false;
+                        return true;
+                      });
+                    }
+                    
+                    // Filter by time and activity
+                    users = users.filter(user => user.totalActivity > 0);
+                    
+                    // Apply leaderboard filter
+                    if (leaderboardFilter === 'pmf-ready' && pmfSurveyReadyUsers.length > 0) {
+                      users = users.filter(user => pmfSurveyReadyUsers.includes(user.email));
+                    } else if (leaderboardFilter === 'power-users' && powerUsersEmails.length > 0) {
+                      users = users.filter(user => powerUsersEmails.includes(user.email));
+                    }
+                    
+                    // Sort based on selected criteria
+                    if (leaderboardSort === 'messages') {
+                      users.sort((a, b) => b.messages - a.messages);
+                    } else if (leaderboardSort === 'reports') {
+                      users.sort((a, b) => b.reports - a.reports);
+                    } else {
+                      users.sort((a, b) => b.totalActivity - a.totalActivity);
+                    }
+                    
+                    // Take top 20
+                    users = users.slice(0, 20);
+                    
+                    return users.map((user, index) => (
+                      <button
+                        key={user.email}
+                        type="button"
+                        onClick={() => setSelectedUserFilter(user.email)}
+                        className={`w-full flex items-center justify-between p-4 rounded-lg transition-colors text-left ${
+                          selectedUserFilter === user.email 
+                            ? 'bg-blue-50 border-2 border-blue-500' 
+                            : 'hover:bg-gray-50 border-2 border-transparent'
+                        }`}
+                        title={`Click to filter conversations by ${user.email}`}
                       >
-                        <option>All Time</option>
-                        <option>Last 30 Days</option>
-                        <option>Last 7 Days</option>
-                        <option>Last 90 Days</option>
-                      </select>
-                      
-                      <div className="flex items-center">
-                        <span className="mr-2 text-sm">Exclude test emails</span>
-                        <Switch
-                          checked={excludeTestEmails}
-                          onChange={setExcludeTestEmails}
-                          className={`${
-                            excludeTestEmails ? 'bg-blue-600' : 'bg-gray-200'
-                          } relative inline-flex h-6 w-11 items-center rounded-full`}
-                        >
-                          <span className="sr-only">Exclude test emails</span>
-                          <span
-                            className={`${
-                              excludeTestEmails ? 'translate-x-6' : 'translate-x-1'
-                            } inline-block h-4 w-4 transform rounded-full bg-white transition`}
-                          />
-                        </Switch>
-                        <button 
-                          type="button"
-                          onClick={() => setShowTestEmailPopup(true)}
-                          className="ml-2 p-1 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
-                          title="Manage test emails"
-                        >
-                          <CogIcon className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Conversation list */}
-                  <div className="space-y-2">
-                    {loading ? (
-                      <div className="text-center py-8 text-gray-500">
-                        Loading conversations...
-                      </div>
-                    ) : error ? (
-                      <div className="text-center py-8 text-red-500">
-                        {error}
-                      </div>
-                    ) : filteredConversations.length > 0 ? (
-                      filteredConversations.map((conversation) => (
-                        <button
-                          type="button"
-                          key={conversation.room_id}
-                          className={`w-full text-left p-4 rounded-md transition-colors ${
-                            selectedConversation === conversation.room_id
-                              ? 'bg-blue-100'
-                              : 'bg-white hover:bg-gray-100'
-                          }`}
-                          onClick={() => setSelectedConversation(conversation.room_id)}
-                        >
-                          <div className="font-medium">
-                            {conversation.account_email}
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-900 truncate max-w-xs">
+                              {user.email}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {user.messages} messages, {user.reports} reports
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium text-gray-900">
+                            {leaderboardSort === 'messages' ? user.messages : leaderboardSort === 'reports' ? user.reports : user.totalActivity}
                           </div>
                           <div className="text-sm text-gray-500">
-                            Artist: {conversation.artist_name || conversation.artist_reference}
+                            {leaderboardSort === 'messages' ? 'messages' : leaderboardSort === 'reports' ? 'reports' : 'total activity'}
                           </div>
-                          {conversation.topic ? (
-                            <div className="text-sm text-gray-500">
-                              Topic: {conversation.topic}
-                            </div>
-                          ) : conversation.account_name && (
-                            <div className="text-sm text-gray-500">
-                              Account: {conversation.account_name}
-                            </div>
-                          )}
-                          <div className="text-xs text-gray-400 flex justify-between mt-1">
-                            <span>
-                              Created: {conversation.created_at 
-                                ? new Date(conversation.created_at).toLocaleString() 
-                                : 'Invalid Date'}
-                            </span>
-                            <span>
-                              Last message: {conversation.last_message_date 
-                                ? new Date(conversation.last_message_date).toLocaleString() 
-                                : 'Invalid Date'}
-                            </span>
-                          </div>
-                        </button>
-                      ))
+                        </div>
+                      </button>
+                    ));
+                  })()}
+                  
+                  {(() => {
+                    // Check if we have any data to show
+                    const hasMessages = Object.keys(messagesByUser).length > 0;
+                    const hasReports = Object.keys(segmentReportsByUser).length > 0;
+                    
+                    if (!hasMessages && !hasReports) {
+                      return (
+                        <div className="text-center text-gray-500 py-8">
+                          No user activity data available for the selected time period.
+                        </div>
+                      );
+                    }
+                    
+                    return null;
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Conversation Management Section */}
+            <div className="bg-white rounded-2xl shadow-md p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+                <h2 className="text-xl font-semibold">Conversation Management</h2>
+                
+                {/* Search and Filters */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {/* Search */}
+                  <div className="relative">
+                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search conversations..."
+                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  
+                  {/* Test Email Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={excludeTestEmails}
+                      onChange={setExcludeTestEmails}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                        excludeTestEmails ? 'bg-blue-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          excludeTestEmails ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </Switch>
+                    <span className="text-sm text-gray-700">Exclude test emails</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTestEmailPopup(true)}
+                      className="p-1 text-gray-400 hover:text-gray-600"
+                      title="Manage test emails"
+                    >
+                      <CogIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* User Filter Status */}
+              {selectedUserFilter && (
+                <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    <span className="text-sm text-blue-800">
+                      Filtering conversations by: <strong>{selectedUserFilter}</strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUserFilter(null)}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    Clear Filter
+                  </button>
+                </div>
+              )}
+
+              {/* Conversation Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="text-sm text-gray-600">Total Conversations</div>
+                  <div className="text-2xl font-bold text-gray-900">{totalCount.toLocaleString()}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="text-sm text-gray-600">Unique Users</div>
+                  <div className="text-2xl font-bold text-gray-900">{totalUniqueUsers.toLocaleString()}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="text-sm text-gray-600">Current Page</div>
+                  <div className="text-2xl font-bold text-gray-900">{currentPage} of {totalPages}</div>
+                </div>
+              </div>
+
+              {/* Loading State */}
+              {loading && (
+                <div className="space-y-4">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="animate-pulse">
+                      <div className="h-4 w-1/4 bg-gray-200 rounded mb-2"></div>
+                      <div className="h-6 w-3/4 bg-gray-200 rounded mb-2"></div>
+                      <div className="h-4 w-1/2 bg-gray-200 rounded"></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Error State */}
+              {error && (
+                <div className="text-red-600 bg-red-50 border border-red-200 rounded-lg p-4">
+                  {error}
+                </div>
+              )}
+
+              {/* Conversations List */}
+              {!loading && !error && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Conversations List */}
+                  <div className="space-y-4">
+                    <h3 className="font-medium text-gray-900">Recent Conversations</h3>
+                    {conversations.length === 0 ? (
+                      <div className="text-center text-gray-500 py-8">
+                        No conversations found matching your criteria.
+                      </div>
                     ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        No conversations found
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {conversations.map((conversation) => (
+                          <div
+                            key={conversation.room_id}
+                            className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                              selectedConversation === conversation.room_id
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
+                            onClick={() => setSelectedConversation(conversation.room_id)}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="min-w-0 flex-1">
+                                <h4 className="font-medium text-gray-900 truncate">
+                                  {conversation.topic || 'Untitled Conversation'}
+                                </h4>
+                                <p className="text-sm text-gray-600 truncate">
+                                  {conversation.account_email}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {new Date(conversation.last_message_date).toLocaleDateString()} at{' '}
+                                  {new Date(conversation.last_message_date).toLocaleTimeString()}
+                                </p>
+                              </div>
+                              <div className="ml-4 flex-shrink-0">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {conversation.messageCount || 0} msgs
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-4">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                          disabled={currentPage === 1}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                        >
+                          Previous
+                        </button>
+                        
+                        <span className="text-sm text-gray-700">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                          disabled={currentPage === totalPages}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
+                        >
+                          Next
+                        </button>
                       </div>
                     )}
                   </div>
-                  
-                  {/* Pagination Controls */}
-                  {totalPages > 1 && (
-                    <div className="flex justify-between items-center mt-4 pt-4 border-t">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                        disabled={currentPage === 1}
-                        className={`px-3 py-1 rounded-md text-sm ${
-                          currentPage === 1
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-500 text-white hover:bg-blue-600'
-                        }`}
-                      >
-                        Previous
-                      </button>
-                      
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-gray-600">
-                          Showing {conversations.length} of {totalCount} rooms
-                        </span>
-                      </div>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage(currentPage + 1)}
-                        disabled={!hasMore}
-                        className={`px-3 py-1 rounded-md text-sm ${
-                          !hasMore
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-500 text-white hover:bg-blue-600'
-                        }`}
-                      >
-                        Next
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* Right panel - Conversation Detail */}
-              <div className="w-full lg:w-3/5 bg-white rounded-lg shadow-sm p-4 border">
-                {conversationDetail ? (
-                  <>
-                    <div className="mb-4 pb-3 border-b">
-                      <h2 className="text-xl font-semibold">{conversationDetail.account_email}</h2>
-                      <p className="text-sm text-gray-600">
-                        Artist: {conversationDetail.artist_name || conversationDetail.artist_reference}
-                      </p>
-                      {conversationDetail.account_name && (
-                        <p className="text-sm text-gray-600 mb-1">Account: {conversationDetail.account_name}</p>
-                      )}
-                      {conversationDetail.topic && (
-                        <p className="text-gray-600">
-                          Topic: {conversationDetail.topic}
-                        </p>
-                      )}
-                      <div className="flex justify-end mt-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // Create a JSON blob
-                            const jsonData = JSON.stringify(conversationDetail, null, 2);
-                            const blob = new Blob([jsonData], { type: 'application/json' });
-                            
-                            // Create download link
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `conversation-${conversationDetail.room_id}.json`;
-                            
-                            // Trigger download
-                            document.body.appendChild(a);
-                            a.click();
-                            
-                            // Cleanup
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                          }}
-                          className="text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-md"
-                        >
-                          Export JSON
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="overflow-y-auto max-h-[calc(100vh-250px)] space-y-4">
-                      {conversationDetail.messages.map((message) => (
-                        message.role === 'report' ? (
-                          <div
-                            key={message.id}
-                            className="p-4 bg-yellow-100 border-l-4 border-yellow-400 rounded shadow-sm mb-4"
-                          >
-                            <div className="font-bold mb-2 text-yellow-800">Segment Report</div>
-                            <div className="whitespace-pre-line text-gray-800">{message.content}</div>
-                            <div className="text-xs text-gray-500 mt-2 text-right">
-                              {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
-                              {' '}
-                              {new Date(message.created_at).toLocaleDateString()}
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            key={message.id}
-                            className={`p-3 rounded-lg max-w-[85%] ${
-                              message.role === 'user'
-                                ? 'bg-blue-50 ml-auto'
-                                : 'bg-white border'
-                            }`}
-                          >
-                            <div className="text-gray-800 markdown-content">
-                              {message.content.includes('<') && message.content.includes('</') ? (
-                                // Content appears to be HTML, render it safely
-                                parse(DOMPurify.sanitize(message.content))
-                              ) : (
-                                // Regular text or markdown, use ReactMarkdown
-                                <ReactMarkdown>{message.content}</ReactMarkdown>
-                              )}
-                            </div>
-                            {message.reasoning && message.role === 'assistant' && (
-                              <details className="mt-2 text-sm">
-                                <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
-                                  View reasoning
-                                </summary>
-                                <div className="mt-1 p-2 bg-gray-50 rounded border text-gray-700 whitespace-pre-wrap">
-                                  <ReactMarkdown>{message.reasoning}</ReactMarkdown>
-                                </div>
-                              </details>
-                            )}
-                            <p className="text-xs text-gray-500 mt-1 text-right">
-                              {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
-                              {' '}
-                              {new Date(message.created_at).toLocaleDateString()}
+
+                  {/* Conversation Detail */}
+                  <div>
+                    <h3 className="font-medium text-gray-900 mb-4">Conversation Details</h3>
+                    {selectedConversation ? (
+                      conversationDetail ? (
+                        <div className="border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto">
+                          <div className="mb-4">
+                            <h4 className="font-medium text-gray-900">{conversationDetail.topic || 'Untitled'}</h4>
+                            <p className="text-sm text-gray-600">{conversationDetail.account_email}</p>
+                            <p className="text-xs text-gray-500">
+                              Started: {conversationDetail.messages.length > 0 ? 
+                                new Date(conversationDetail.messages[0].created_at).toLocaleDateString() : 
+                                'Unknown'}
                             </p>
                           </div>
-                        )
-                      ))}
-                    </div>
-                  </>
-                ) : selectedConversation ? (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-gray-500">Loading conversation...</p>
+                          
+                          <div className="space-y-4">
+                            {conversationDetail.messages.map((message, index) => (
+                              <div
+                                key={index}
+                                className={`p-3 rounded-lg ${
+                                  message.role === 'user'
+                                    ? 'bg-blue-50 border-l-4 border-blue-400'
+                                    : 'bg-gray-50 border-l-4 border-gray-400'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm font-medium">
+                                    {message.role === 'user' ? 'User' : 'Assistant'}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    {new Date(message.created_at).toLocaleTimeString()}
+                                  </span>
+                                </div>
+                                <div className="text-sm text-gray-700">
+                                  {message.role === 'user' ? (
+                                    <p className="whitespace-pre-wrap">{message.content}</p>
+                                  ) : (
+                                    <div className="prose prose-sm max-w-none">
+                                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-gray-200 rounded-lg p-4 text-center text-gray-500">
+                          Loading conversation details...
+                        </div>
+                      )
+                    ) : (
+                      <div className="border border-gray-200 rounded-lg p-4 text-center text-gray-500">
+                        Select a conversation to view details
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-gray-500">Select a conversation to view details</p>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         )}
