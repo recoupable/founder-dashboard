@@ -270,8 +270,12 @@ export default function ConversationsPage() {
         // Restore original console.log
         console.log = originalConsoleLog;
         
-        // Update conversations and pagination state
-        setConversations(result.conversations);
+        // Defensive: ensure conversations is always an array
+        if (Array.isArray(result.conversations)) {
+          setConversations(result.conversations);
+        } else {
+          setConversations([]);
+        }
         setTotalPages(result.totalPages);
         setTotalCount(result.totalCount);
         setTotalUniqueUsers(result.totalUniqueUsers);
