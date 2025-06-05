@@ -21,13 +21,15 @@ export function useAllUsers(): UseAllUsersReturn {
   const fetchAllUsers = async (): Promise<UserActivity[]> => {
     try {
       // Fetch activity data for users who have activity
-      const [messageResponse, reportsResponse] = await Promise.all([
+      const [messageResponse, reportsResponse, artistCountsResponse] = await Promise.all([
         fetch('/api/conversations/message-counts'),
-        fetch('/api/conversations/leaderboard')
+        fetch('/api/conversations/leaderboard'),
+        fetch('/api/artist-counts')
       ]);
       
       const messageData = await messageResponse.json();
       const reportsData = await reportsResponse.json();
+      const artistCountsData = await artistCountsResponse.json();
 
       // Get test emails for filtering
       let testEmails: string[] = [];
@@ -62,10 +64,11 @@ export function useAllUsers(): UseAllUsersReturn {
             email: row.account_email,
             messages: 0,
             reports: 0,
+            artists: 0,
             totalActivity: 0
           };
           existing.messages = row.message_count;
-          existing.totalActivity = existing.messages + existing.reports;
+          existing.totalActivity = existing.messages + existing.reports + existing.artists;
           userActivityMap.set(row.account_email, existing);
         });
       }
@@ -81,15 +84,17 @@ export function useAllUsers(): UseAllUsersReturn {
             email: row.email,
             messages: 0,
             reports: 0,
+            artists: 0,
             totalActivity: 0
           };
           existing.reports = row.segment_report_count;
-          existing.totalActivity = existing.messages + existing.reports;
+          existing.totalActivity = existing.messages + existing.reports + existing.artists;
           userActivityMap.set(row.email, existing);
         });
       }
 
       // Fetch ALL users from account_emails table to include zero-activity users
+      const emailToAccountMap = new Map<string, string>();
       try {
         const allEmailsResponse = await fetch('/api/all-account-emails');
         
@@ -97,10 +102,13 @@ export function useAllUsers(): UseAllUsersReturn {
           const allEmailsData = await allEmailsResponse.json();
           
           if (allEmailsData && Array.isArray(allEmailsData)) {
-            // Add users from account_emails that aren't already in the activity map
+            // Create mapping of email to account_id and add users with zero activity
             allEmailsData.forEach((row: { account_id: string; email: string }) => {
               const email = row.email;
               if (!isNotTestEmail(email)) return;
+              
+              // Map email to account_id for artist count lookup
+              emailToAccountMap.set(email, row.account_id);
               
               // If user is not already in activity map, add them with zero activity
               if (!userActivityMap.has(email)) {
@@ -108,6 +116,7 @@ export function useAllUsers(): UseAllUsersReturn {
                   email: email,
                   messages: 0,
                   reports: 0,
+                  artists: 0,
                   totalActivity: 0
                 });
               }
@@ -118,6 +127,25 @@ export function useAllUsers(): UseAllUsersReturn {
         }
       } catch (allEmailsError) {
         console.warn('Error fetching all account emails:', allEmailsError);
+      }
+
+      // Add artist counts
+      if (artistCountsData && Array.isArray(artistCountsData)) {
+        // Create a map of account_id to artist_count
+        const artistCountMap = new Map<string, number>();
+        artistCountsData.forEach((row: { account_id: string; artist_count: number }) => {
+          artistCountMap.set(row.account_id, row.artist_count);
+        });
+
+        // Match artist counts to users by account_id
+        userActivityMap.forEach((user, email) => {
+          const accountId = emailToAccountMap.get(email);
+          if (accountId && artistCountMap.has(accountId)) {
+            const artistCount = artistCountMap.get(accountId) || 0;
+            user.artists = artistCount;
+            user.totalActivity = user.messages + user.reports + user.artists;
+          }
+        });
       }
 
       // Convert to array and include ALL users (including those with 0 activity)

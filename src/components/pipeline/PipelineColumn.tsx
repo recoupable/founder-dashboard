@@ -5,7 +5,6 @@ import { Customer, PipelineStage } from '@/lib/customerService';
 import { CustomerCard } from './CustomerCard';
 import { usePipeline } from '@/context/PipelineContext';
 import { Plus } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
 
 interface PipelineColumnProps {
   stage: PipelineStage;
@@ -166,9 +165,6 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
     }
   };
   
-  // Calculate total MRR for this stage
-  const totalMRR = customers.reduce((sum, customer) => sum + customer.current_mrr, 0);
-  
   return (
     <div 
       ref={columnRef}
@@ -184,11 +180,6 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
         <div className="flex justify-between items-center">
           <div>
             <h3 className="font-medium text-gray-900">{getStageName(stage)}</h3>
-            <div className="text-sm text-gray-500 mt-1">
-              <span>{customers.length} {customers.length === 1 ? 'customer' : 'customers'}</span>
-              <span className="mx-1">•</span>
-              <span>{formatCurrency(totalMRR)} MRR</span>
-            </div>
           </div>
           {onAddClick && (
             <button 

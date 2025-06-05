@@ -3,7 +3,6 @@
 import React from 'react';
 import { Customer } from '@/lib/customerService';
 import Image from 'next/image';
-import { formatCurrency } from '@/lib/utils';
 
 interface CustomerCardProps {
   customer: Customer;
@@ -18,9 +17,29 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
     }
   };
 
+  // Check if URL is valid (not a local blob URL or just text)
+  const isValidImageUrl = (url: string | undefined): boolean => {
+    if (!url) return false;
+    // Local blob URLs won't persist between sessions
+    if (url.startsWith('blob:')) return false;
+    // Check if it's a valid URL format
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      // Return false for invalid URLs (including plain text)
+      return false;
+    }
+  };
+
   return (
     <div
       onClick={handleClick}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('customerId', customer.id);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
       className={`
         border rounded-lg p-3 cursor-pointer transition-all duration-200 bg-white
         ${isSelected 
@@ -29,12 +48,12 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
         }
       `}
     >
-      <div className="flex items-start space-x-3">
+      <div className="flex items-center justify-start space-x-3">
         {/* Avatar */}
         <div className="flex-shrink-0">
-          {customer.logo_url ? (
+          {isValidImageUrl(customer.logo_url) ? (
             <Image
-              src={customer.logo_url}
+              src={customer.logo_url || ''}
               alt={`${customer.name} logo`}
               width={40}
               height={40}
@@ -50,36 +69,10 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
         </div>
         
         {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex justify-between items-start">
-            <h3 className="font-medium text-gray-900 truncate text-sm">
-              {customer.name}
-            </h3>
-          </div>
-          
-          {/* Customer Details */}
-          <div className="mt-1 text-xs text-gray-500 flex flex-wrap gap-x-3 gap-y-1">
-            {/* Current MRR */}
-            <div className="flex items-center gap-1">
-              <span className="font-medium">{formatCurrency(customer.current_mrr)}</span>
-              <span className="text-xs">MRR</span>
-            </div>
-            
-            {/* Potential MRR - Only show if greater than 0 */}
-            {customer.potential_mrr > 0 && (
-              <div className="flex items-center gap-1">
-                <span className="font-medium">{formatCurrency(customer.potential_mrr)}</span>
-                <span className="text-xs">Upcoming</span>
-              </div>
-            )}
-          </div>
-
-          {/* Contact Email */}
-          {customer.contact_email && (
-            <div className="mt-2 text-xs text-gray-600">
-              <span className="font-medium">Email:</span> {customer.contact_email}
-            </div>
-          )}
+        <div className="min-w-0">
+          <h3 className="font-medium text-gray-900 truncate text-sm">
+            {customer.name}
+          </h3>
         </div>
       </div>
     </div>

@@ -28,7 +28,6 @@ export function NetProfitCalculator({ developmentCost, operationalCost }: NetPro
     <NetProfitCard 
       netProfit={Math.abs(netProfit)} 
       isProfit={isProfit}
-      isAnnual={showAnnual}
     />
   );
 } 

@@ -10,6 +10,7 @@ export interface UserActivity {
   email: string;
   messages: number;
   reports: number;
+  artists: number;
   totalActivity: number;
 }
 
@@ -195,6 +196,7 @@ export function formatUserActivity(user: UserActivity): string {
   const parts = [];
   if (user.messages > 0) parts.push(`${user.messages} messages`);
   if (user.reports > 0) parts.push(`${user.reports} reports`);
+  if (user.artists > 0) parts.push(`${user.artists} artists`);
   return parts.length > 0 ? parts.join(', ') : 'No activity';
 }
 

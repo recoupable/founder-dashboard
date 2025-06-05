@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { TodoList } from '@/components/ui/todo-list';
 import { useAllUsers } from '@/hooks/useAllUsers';
 import { getUsersForOrganization, UserActivity } from '@/lib/userOrgMatcher';
-import { MessageSquare, FileText, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 interface CustomerFormModalProps {
   isOpen: boolean;
@@ -33,7 +33,7 @@ export function CustomerFormModal({
   const [open, setOpen] = useState(isOpen);
   
   // Tab state
-  const [activeTab, setActiveTab] = useState<TabType>('details');
+  const [activeTab, setActiveTab] = useState<TabType>('status');
   
   // User activity data - always use all users (no filter toggle)
   const { allUsers, loading: isLoadingAll } = useAllUsers();
@@ -220,18 +220,24 @@ export function CustomerFormModal({
                      </div>
                      <div className="flex items-center gap-3 text-sm text-gray-600">
                        {user.messages > 0 && (
-                         <div className="flex items-center gap-1" title="Messages sent">
-                           <MessageSquare size={14} />
-                           <span>{user.messages}</span>
+                         <div className="flex items-center gap-1">
+                           <span className="text-xs text-gray-500">Messages:</span>
+                           <span className="font-medium">{user.messages}</span>
                          </div>
                        )}
                        {user.reports > 0 && (
-                         <div className="flex items-center gap-1" title="Reports generated">
-                           <FileText size={14} />
-                           <span>{user.reports}</span>
+                         <div className="flex items-center gap-1">
+                           <span className="text-xs text-gray-500">Reports:</span>
+                           <span className="font-medium">{user.reports}</span>
                          </div>
                        )}
-                       {user.messages === 0 && user.reports === 0 && (
+                       {user.artists > 0 && (
+                         <div className="flex items-center gap-1">
+                           <span className="text-xs text-gray-500">Artists:</span>
+                           <span className="font-medium">{user.artists}</span>
+                         </div>
+                       )}
+                       {user.messages === 0 && user.reports === 0 && user.artists === 0 && (
                          <span className="text-gray-400 text-xs">No activity</span>
                        )}
                      </div>
@@ -241,17 +247,7 @@ export function CustomerFormModal({
              </div>
            )}
 
-          {/* Contact Email Info */}
-          {customer?.contact_email && (
-            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <strong>Contact Email:</strong> {customer.contact_email}
-              </p>
-              <p className="text-xs text-blue-600 mt-1">
-                Users are automatically matched based on their email domain
-              </p>
-            </div>
-          )}
+
         </div>
       );
     }

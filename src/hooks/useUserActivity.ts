@@ -113,6 +113,7 @@ export function useUserActivity(options: UseUserActivityOptions = {}): UseUserAc
               email: row.account_email,
               messages: 0,
               reports: 0,
+              artists: 0,
               totalActivity: 0
             });
           }
@@ -133,6 +134,7 @@ export function useUserActivity(options: UseUserActivityOptions = {}): UseUserAc
               email: row.email,
               messages: 0,
               reports: 0,
+              artists: 0,
               totalActivity: 0
             });
           }
