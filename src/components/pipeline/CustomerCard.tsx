@@ -2,17 +2,19 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { Customer } from '@/lib/customerService'
+import { UserActivity } from '@/lib/userOrgMatcher'
 import Image from 'next/image'
 import { formatCurrency } from '@/lib/utils'
-import { ChevronDown, ChevronUp, Check, Square } from 'lucide-react'
+import { ChevronDown, ChevronUp, Check, Square, Users, MessageCircle, FileText } from 'lucide-react'
 
 interface CustomerCardProps {
   customer: Customer
   onClick?: (customer: Customer) => void
   isSelected?: boolean
+  users?: UserActivity[] // Users associated with this organization
 }
 
-export function CustomerCard({ customer, onClick, isSelected = false }: CustomerCardProps) {
+export function CustomerCard({ customer, onClick, isSelected = false, users = [] }: CustomerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -187,6 +189,44 @@ export function CustomerCard({ customer, onClick, isSelected = false }: Customer
         {/* Expanded Content */}
         {isExpanded && (
           <div className="mt-3 pt-3 border-t text-sm">
+            {/* Users Section */}
+            {users.length > 0 && (
+              <div className="mb-3">
+                <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Users size={16} />
+                  Active Users ({users.length})
+                </h4>
+                <div className="space-y-2">
+                  {users.slice(0, 3).map((user, index) => (
+                    <div key={index} className="flex items-center justify-between text-xs bg-gray-50 rounded p-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 truncate">{user.email}</div>
+                      </div>
+                      <div className="flex items-center gap-3 text-gray-500 ml-2">
+                        {user.messages > 0 && (
+                          <div className="flex items-center gap-1">
+                            <MessageCircle size={12} />
+                            <span>{user.messages}</span>
+                          </div>
+                        )}
+                        {user.reports > 0 && (
+                          <div className="flex items-center gap-1">
+                            <FileText size={12} />
+                            <span>{user.reports}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {users.length > 3 && (
+                    <div className="text-xs text-gray-500 text-center py-1">
+                      +{users.length - 3} more users
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
             {/* Todos Section */}
             {(customer.todos && customer.todos.length > 0) && (
               <div className="mb-3">

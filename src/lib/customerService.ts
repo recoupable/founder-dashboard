@@ -70,6 +70,7 @@ export interface Customer {
   contact_name?: string
   contact_email?: string
   contact_phone?: string
+  domain?: string // Auto-extracted from contact_email, used for user matching
   contacts?: Contact[]
   
   // Company information
@@ -146,6 +147,7 @@ interface CustomerRow {
   contact_name?: string
   contact_email?: string
   contact_phone?: string
+  domain?: string
   contacts?: unknown
   
   // Company information

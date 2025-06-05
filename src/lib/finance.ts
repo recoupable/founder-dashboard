@@ -10,16 +10,13 @@ const getEnterpriseMRR = () => {
   return ENTERPRISE_CUSTOMERS.reduce((total, customer) => total + customer.mrr, 0);
 };
 
-// Monthly grant amount - verified
-const MONTHLY_GRANT = 3000;
-
 // Monthly expenses - verified amounts
 const MONTHLY_EXPENSES = {
-  development: 5555,
+  development: 3472,
   operations: {
     apis: 200,
     subscriptions: 200,
-    tools: 100,
+    tools: 200,
   }
 };
 
@@ -56,7 +53,7 @@ export async function getMonthlyFinancials(): Promise<MonthlyFinancials> {
   const stripeMRR = 0;
   const enterpriseMRR = getEnterpriseMRR();
   const totalMRR = stripeMRR + enterpriseMRR;
-  const totalRevenue = totalMRR + MONTHLY_GRANT;
+  const totalRevenue = totalMRR; // No monthly grant anymore
   const operationalCosts = getOperationalCosts();
   const totalExpenses = getTotalMonthlyExpenses();
   const profit = totalRevenue - totalExpenses;
@@ -64,7 +61,7 @@ export async function getMonthlyFinancials(): Promise<MonthlyFinancials> {
   return {
     revenue: {
       mrr: totalMRR,
-      grants: MONTHLY_GRANT,
+      grants: 0, // No grants anymore
       total: totalRevenue
     },
     expenses: {

@@ -4,6 +4,8 @@ import React, { useState, useRef } from 'react';
 import { Customer, PipelineStage } from '@/lib/customerService';
 import { CustomerCard } from './CustomerCard';
 import { usePipeline } from '@/context/PipelineContext';
+import { useUserActivity } from '@/hooks/useUserActivity';
+import { getUsersForOrganization } from '@/lib/userOrgMatcher';
 import { Plus } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
@@ -18,9 +20,12 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [dropPosition, setDropPosition] = useState<{ id: string, position: 'top' | 'bottom' } | null>(null);
   const [showEmptyIndicator, setShowEmptyIndicator] = useState(false);
-  const { moveCustomerToStage, reorderCustomers } = usePipeline();
+  const { moveCustomerToStage, reorderCustomers, customers: allCustomers } = usePipeline();
   const columnRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  
+  // Fetch user activity data for organization-user matching
+  const { users: userActivityData } = useUserActivity();
   
   // Handle drag over event for the column
   const handleDragOver = (e: React.DragEvent) => {
@@ -124,6 +129,18 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
     const targetIndex = customers.findIndex(c => c.id === targetId);
     if (targetIndex === -1) return;
     
+    // Check if this is a cross-stage move (need to find source customer from all stages)
+    const sourceCustomer = allCustomers.find(c => c.id === sourceId);
+    
+    if (!sourceCustomer) return;
+    
+    // If moving between different stages, just move to the new stage
+    if (sourceCustomer.stage !== stage) {
+      await moveCustomerToStage(sourceId, stage);
+      return;
+    }
+    
+    // If in the same stage, handle reordering
     // If dropping at the bottom of a card, we want to place it after the target
     // If dropping at the top, we want to place it before the target
     let actualTargetId = targetId;
@@ -195,32 +212,38 @@ export function PipelineColumn({ stage, customers, onCustomerClick, onAddClick }
         ref={contentRef}
         className="flex-1 overflow-y-auto p-3 space-y-3 relative"
       >
-        {customers.map((customer) => (
-          <div 
-            key={customer.id}
-            className={`relative ${
-              dropPosition?.id === customer.id ? 'z-10' : 'z-0'
-            }`}
-            onDragOver={(e) => handleCardDragOver(e, customer.id)}
-            onDragLeave={handleCardDragLeave}
-            onDrop={(e) => handleCardDrop(e, customer.id)}
-          >
-            {/* Drop indicator - top */}
-            {dropPosition?.id === customer.id && dropPosition.position === 'top' && (
-              <div className="absolute -top-1.5 left-0 right-0 h-1 bg-blue-500 rounded-full animate-pulse" />
-            )}
-            
-            <CustomerCard 
-              customer={customer} 
-              onClick={onCustomerClick}
-            />
-            
-            {/* Drop indicator - bottom */}
-            {dropPosition?.id === customer.id && dropPosition.position === 'bottom' && (
-              <div className="absolute -bottom-1.5 left-0 right-0 h-1 bg-blue-500 rounded-full animate-pulse" />
-            )}
-          </div>
-        ))}
+        {customers.map((customer) => {
+          // Get users for this organization
+          const organizationUsers = getUsersForOrganization(customer, userActivityData);
+          
+          return (
+            <div 
+              key={customer.id}
+              className={`relative ${
+                dropPosition?.id === customer.id ? 'z-10' : 'z-0'
+              }`}
+              onDragOver={(e) => handleCardDragOver(e, customer.id)}
+              onDragLeave={handleCardDragLeave}
+              onDrop={(e) => handleCardDrop(e, customer.id)}
+            >
+              {/* Drop indicator - top */}
+              {dropPosition?.id === customer.id && dropPosition.position === 'top' && (
+                <div className="absolute -top-1.5 left-0 right-0 h-1 bg-blue-500 rounded-full animate-pulse" />
+              )}
+              
+              <CustomerCard 
+                customer={customer} 
+                onClick={onCustomerClick}
+                users={organizationUsers}
+              />
+              
+              {/* Drop indicator - bottom */}
+              {dropPosition?.id === customer.id && dropPosition.position === 'bottom' && (
+                <div className="absolute -bottom-1.5 left-0 right-0 h-1 bg-blue-500 rounded-full animate-pulse" />
+              )}
+            </div>
+          );
+        })}
         
         {/* Empty state or drop indicator at the end */}
         {customers.length === 0 ? (

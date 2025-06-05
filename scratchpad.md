@@ -451,3 +451,450 @@ The Conversations tab is a robust, user-friendly feature for viewing, filtering,
 
 ### F. Summary
 The `/conversations` feature is robust and user-friendly, with strong filtering, export, and security practices. However, the codebase would benefit from refactoring into smaller components, performance optimizations, and improved accessibility and testing.
+
+---
+
+## TICKET: Deep User Analysis Feature
+
+### 🎯 **Feature Overview**
+Create a comprehensive user analysis system that allows clicking on any leaderboard user to view an expanded card with deep insights about their product usage, behavior patterns, and AI-generated recommendations.
+
+### 🎪 **User Story**
+As a CEO/Product Manager, I want to click on any user in the leaderboard to see a detailed analysis of their behavior, usage patterns, pain points, and opportunities so that I can make data-driven decisions about product development and user engagement strategies.
+
+### ✅ **Acceptance Criteria**
+
+#### **1. User Interaction**
+- [ ] Click any user in the leaderboard to expand detailed analysis card
+- [ ] Card can be closed/collapsed back to normal leaderboard view
+- [ ] Loading state while data is being processed and analyzed
+- [ ] Error handling if analysis fails
+
+#### **2. Automated Data Aggregation**
+- [ ] **Usage Metrics**: Total messages, reports, sessions, time range active
+- [ ] **Engagement Patterns**: Usage frequency, session length, time-of-day patterns
+- [ ] **Product Usage**: Artists worked with, conversation topics, feature usage
+- [ ] **Trend Analysis**: Activity over time, engagement changes, growth/decline patterns
+- [ ] **Comparative Metrics**: How they rank vs other users, percentile rankings
+
+#### **3. Manual Data Management**
+- [ ] Admin interface to add/edit user profile data:
+  - Job title / role
+  - Company name / size
+  - Payment status (free/paid/trial)
+  - Industry/sector
+  - Geographic location
+  - User tier/segment
+- [ ] Data persisted in Supabase table (`user_profiles`)
+- [ ] Fallback gracefully if no manual data exists
+
+#### **4. LLM Analysis & Insights**
+- [ ] **Conversation Analysis**: Extract themes, pain points, feature requests from message content
+- [ ] **Usage Pattern Insights**: Interpret what their behavior indicates about product-market fit
+- [ ] **Pain Point Detection**: Identify frustrations, blockers, or areas of confusion
+- [ ] **Opportunity Identification**: Suggest upsell opportunities, feature needs, or engagement strategies
+- [ ] **Sentiment Analysis**: Overall satisfaction and engagement level
+- [ ] **Recommendation Engine**: Actionable insights for product team
+
+#### **4B. Behavioral Intelligence & Pattern Recognition**
+- [ ] **Hot Topics Analysis**: Identify repeated question patterns and topics per user
+  - Questions asked multiple times (indicates AI failure or user confusion)
+  - Similar topics across different artists/projects (core workflow needs)
+  - Evolution of question complexity over time (skill progression tracking)
+- [ ] **Session Flow Analysis**: Understand user workflow patterns
+  - Completion vs abandonment rates by topic/question type
+  - Session depth patterns (1 message vs extended workflows)
+  - Success indicators (follow-up questions, return patterns)
+  - Frustration signals (abrupt endings, repetitive questions)
+- [ ] **User Evolution Tracking**: Monitor skill and usage progression
+  - Simple → Complex question evolution (growing trust/sophistication)
+  - Feature discovery patterns (what they figured out over time)
+  - Topic expansion or contraction over time
+  - Workflow establishment (repeating successful patterns)
+- [ ] **Cross-User Pattern Recognition**: Identify segment-wide trends
+  - Hot topics trending across user types (product opportunity signals)
+  - Common failure points by user segment (feature gaps)
+  - Successful workflow patterns to replicate
+  - Churn risk indicators by user type
+- [ ] **Monetization Signal Detection**: Identify revenue opportunities
+  - Client work mentions (making money with the product)
+  - Scaling/batch processing questions (volume needs)
+  - Professional workflow questions (upsell readiness)
+  - Feature limitation complaints (upgrade triggers)
+
+#### **5. UI/UX Design**
+- [ ] Expandable card design that doesn't disrupt leaderboard layout
+- [ ] **Sections**: 
+  - User Profile (manual data)
+  - Usage Statistics (automated metrics)
+  - AI Insights (LLM-generated analysis)
+  - Conversation Samples (key excerpts)
+  - Recommendations (actionable items)
+- [ ] Export user analysis as PDF/JSON
+- [ ] Responsive design for mobile/tablet
+
+#### **6. Performance & Technical**
+- [ ] Analysis caching (don't re-analyze same user data unnecessarily)
+- [ ] Incremental data loading (show stats first, then AI insights)
+- [ ] API rate limiting for LLM calls
+- [ ] Background processing for expensive analysis
+- [ ] Maximum conversation sample size for LLM (token limits)
+
+### 🏗️ **Technical Architecture**
+
+#### **Data Sources**
+```typescript
+interface UserAnalysisData {
+  // Automated aggregation
+  userId: string;
+  email: string;
+  usageStats: {
+    totalMessages: number;
+    totalReports: number;
+    totalSessions: number;
+    avgSessionLength: number;
+    daysActive: number;
+    firstSeen: Date;
+    lastSeen: Date;
+    engagementScore: number;
+  };
+  
+  // Manual profile data
+  profile: {
+    jobTitle?: string;
+    company?: string;
+    paymentStatus?: 'free' | 'trial' | 'paid';
+    industry?: string;
+    location?: string;
+    tier?: string;
+  };
+  
+  // Conversation samples for LLM
+  conversationSamples: {
+    recentMessages: string[];
+    topConversations: string[];
+    painPointExamples: string[];
+  };
+}
+```
+
+#### **LLM vs Metadata Decision Matrix**
+
+**📊 Metadata/Stats (Calculated):**
+- Usage frequency, message counts, session data
+- Time patterns, engagement trends
+- Artist collaboration patterns
+- Technical metrics (response times, error rates)
+- Comparative rankings and percentiles
+
+**🤖 LLM Analysis (AI-Generated):**
+- Conversation content themes and sentiment
+- Pain point identification from messages
+- Feature request extraction
+- Usage pattern interpretation
+- Satisfaction assessment
+- Strategic recommendations
+- Opportunity identification
+
+#### **API Endpoints Needed**
+- `GET /api/user-analysis/{email}` - Get complete user analysis
+- `POST /api/user-analysis/{email}/profile` - Update manual profile data
+- `POST /api/user-analysis/{email}/regenerate` - Force re-analyze with LLM
+- `GET /api/user-profiles` - Admin interface for bulk profile management
+
+#### **Database Schema**
+```sql
+-- New table for manual user data
+CREATE TABLE user_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  job_title TEXT,
+  company TEXT,
+  payment_status TEXT CHECK (payment_status IN ('free', 'trial', 'paid')),
+  industry TEXT,
+  location TEXT,
+  tier TEXT,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Cache table for expensive LLM analysis
+CREATE TABLE user_analysis_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL,
+  analysis_data JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  expires_at TIMESTAMP NOT NULL
+);
+```
+
+### 🔄 **Implementation Phases**
+
+#### **Phase 1: Foundation** 
+- [ ] Create user profile management system
+- [ ] Build data aggregation APIs
+- [ ] Design expandable card UI component
+
+#### **Phase 2: Basic Analysis**
+- [ ] Implement click-to-expand functionality
+- [ ] Show automated metrics and manual profile data
+- [ ] Add basic conversation samples
+
+#### **Phase 3: AI Integration**
+- [ ] Integrate LLM for conversation analysis
+- [ ] Generate insights and recommendations
+- [ ] Add caching and performance optimizations
+
+#### **Phase 4: Advanced Features**
+- [ ] Export functionality
+- [ ] Admin bulk profile management
+- [ ] Advanced filtering and segmentation
+
+### 🚀 **V2: Contextual Intelligence & User Segmentation**
+
+#### **Enhanced Behavioral Intelligence Features**
+
+#### **🔥 Hot Topics & Pattern Analysis**
+- [ ] **Individual Hot Topics Tracking**:
+  - Questions asked 3+ times by same user
+  - Topic clustering across different conversations
+  - Success/failure rates per topic category
+  - Time-to-resolution tracking per topic type
+- [ ] **Cross-User Hot Topics**:
+  - Trending topics across user segments
+  - Feature gap identification (high-ask, low-success topics)
+  - Seasonal or temporal patterns in questions
+  - Competitive feature requests (mentions of other tools)
+
+#### **📊 Session Intelligence & Flow Analysis**
+- [ ] **Completion Pattern Recognition**:
+  - Session completion vs abandonment triggers
+  - Optimal session length patterns by user type
+  - Question sequence patterns that lead to success
+  - Break points where users typically give up
+- [ ] **Workflow Success Mapping**:
+  - End-to-end workflow completion rates
+  - Bottleneck identification in user journeys
+  - Feature utilization patterns within sessions
+  - Context switching patterns (topic jumping vs focused sessions)
+
+#### **🎯 User Evolution & Sophistication Tracking**
+- [ ] **Skill Progression Analysis**:
+  - Question complexity evolution over time
+  - Feature adoption progression (basic → advanced)
+  - Learning curve identification per user type
+  - Mastery indicators (advanced questions, workflow efficiency)
+- [ ] **Engagement Phase Classification**:
+  - Onboarding phase (basic questions, exploration)
+  - Growth phase (increasing complexity, regular usage)
+  - Mastery phase (advanced workflows, teaching others)
+  - Churn risk phase (declining engagement, simpler questions)
+
+#### **💰 Advanced Monetization Intelligence**
+- [ ] **Revenue Signal Detection**:
+  - Client work mentions and frequency
+  - Professional workflow establishment
+  - Volume/scaling question patterns
+  - Feature limitation complaints as upgrade triggers
+- [ ] **Upsell Timing Intelligence**:
+  - Feature request clustering (multiple related asks)
+  - Usage ceiling indicators (hitting free plan limits)
+  - Professional terminology adoption
+  - Batch processing or automation requests
+
+#### **Enhanced Data Architecture for Behavioral Analysis**
+```typescript
+interface BehavioralIntelligence {
+  // Hot topics and pattern analysis
+  hotTopics: {
+    topic: string;
+    frequency: number;
+    successRate: number;
+    averageResolutionTime: number;
+    relatedArtists: string[];
+    evolutionTrend: 'increasing' | 'decreasing' | 'stable';
+  }[];
+  
+  // Session flow intelligence
+  sessionPatterns: {
+    averageSessionLength: number;
+    completionRate: number;
+    commonBreakPoints: string[];
+    successfulFlowPatterns: string[];
+    abandonnmentTriggers: string[];
+  };
+  
+  // User evolution tracking
+  evolutionMetrics: {
+    skillProgression: {
+      week: number;
+      complexityScore: number;
+      newFeaturesDiscovered: string[];
+      questionTypes: string[];
+    }[];
+    learningVelocity: number;
+    masteryIndicators: string[];
+    currentPhase: 'onboarding' | 'growth' | 'mastery' | 'at_risk';
+  };
+  
+  // Monetization signals
+  revenueSignals: {
+    clientWorkMentions: number;
+    professionalTerminology: string[];
+    scalingQuestions: number;
+    featureLimitationComplaints: string[];
+    upsellReadinessScore: number;
+  };
+  
+  // Cross-user intelligence
+  segmentComparison: {
+    hotTopicsVsSegment: number; // percentage match
+    engagementVsSegment: number;
+    progressionVsSegment: number;
+    uniquePatterns: string[];
+  };
+}
+```
+
+#### **Enhanced UI Layout for Behavioral Intelligence**
+```
+┌─ paloma@artist.com [🎨 Visual Artist 87%] [📈 Growth Phase] ─┐
+├─ BEHAVIORAL INTELLIGENCE ─────────────────────────────────┤
+│ 🔥 HOT TOPICS (Last 30 Days):                             │
+│ • "Album art color schemes" (5x) → 🎯 Core strength        │
+│ • "Client pricing strategies" (3x) → 💰 Monetization      │
+│ • "Print quality exports" (4x) → 🚨 Feature gap          │
+│                                                           │
+│ 📊 SESSION INTELLIGENCE:                                  │
+│ • Completion Rate: 73% (avg 6.2 msgs/session)            │
+│ • Success Pattern: Visual concepts → examples → iteration │
+│ • Break Point: Technical explanations (30% abandon)       │
+│                                                           │
+│ 🎯 EVOLUTION TRAJECTORY:                                  │
+│ Week 1: "Basic color theory"                              │
+│ Week 4: "Album packaging design"                          │
+│ Week 8: "Client presentation templates" → 📈 Growing      │
+│                                                           │
+│ 💰 MONETIZATION SIGNALS:                                  │
+│ • Client work: 8 mentions (scaling up)                    │
+│ • "Batch processing" asked 2x → Volume needs              │
+│ • Professional terminology adoption: +40%                 │
+│ • Upsell Readiness: 78% 🎯                               │
+│                                                           │
+│ 🚨 INTERVENTION OPPORTUNITIES:                            │
+│ • Build: Export quality tutorial (asked 4x)              │
+│ • Fix: Remember visual preference (text abandonment)      │
+│ • Upsell: Pro features for client work                    │
+└───────────────────────────────────────────────────────────┘
+```
+
+#### **LLM Prompt Engineering for Behavioral Analysis**
+```typescript
+const behavioralAnalysisPrompt = `
+Analyze this user's behavioral patterns and extract actionable insights:
+
+HOT TOPICS ANALYSIS:
+${user.hotTopics.map(topic => 
+  `- "${topic.topic}" (${topic.frequency}x, ${topic.successRate}% success rate)`
+).join('\n')}
+
+SESSION FLOW PATTERNS:
+- Average session: ${user.sessionPatterns.averageSessionLength} messages
+- Completion rate: ${user.sessionPatterns.completionRate}%
+- Break points: ${user.sessionPatterns.commonBreakPoints.join(', ')}
+- Success flows: ${user.sessionPatterns.successfulFlowPatterns.join(', ')}
+
+EVOLUTION TRACKING:
+- Current phase: ${user.evolutionMetrics.currentPhase}
+- Learning velocity: ${user.evolutionMetrics.learningVelocity}
+- Recent skill progression: ${user.evolutionMetrics.skillProgression.slice(-3).map(p => 
+  `Week ${p.week}: ${p.complexityScore} complexity, discovered ${p.newFeaturesDiscovered.join(',')}`
+).join('; ')}
+
+MONETIZATION SIGNALS:
+- Client work mentions: ${user.revenueSignals.clientWorkMentions}
+- Professional terminology: ${user.revenueSignals.professionalTerminology.join(', ')}
+- Scaling questions: ${user.revenueSignals.scalingQuestions}
+- Feature limitations: ${user.revenueSignals.featureLimitationComplaints.join(', ')}
+- Upsell readiness: ${user.revenueSignals.upsellReadinessScore}%
+
+RECENT CONVERSATION SAMPLES:
+${user.conversationSamples.recentMessages.join('\n')}
+
+Based on this behavioral intelligence, provide insights about:
+1. What are this user's core workflow strengths and pain points?
+2. Where is the AI failing them (repeated questions, abandonment patterns)?
+3. What specific product improvements would help this user type?
+4. What's their monetization potential and upsell timing?
+5. What intervention strategies would improve their experience?
+6. How does their behavior compare to their user segment?
+`;
+```
+
+### 🎯 **Strategic Value of V2 Features**
+- **Product Roadmap Intelligence**: Understand what different user types need
+- **Market Segmentation**: Data-driven user personas and behavior patterns
+- **Personalized Engagement**: Tailor outreach and features to user types
+- **Competitive Intelligence**: Understanding user journey and satisfaction by segment
+- **Predictive Analytics**: Early warning for churn, upsell opportunities
+- **Sales Intelligence**: Rich context for every user interaction
+
+### 🎨 **UI Mockup Structure**
+```
+┌─ Leaderboard User Row ─────────────────────────┐
+│ [1] paloma@artist.com   [74 total activity] ▼ │
+├─ EXPANDED ANALYSIS CARD ──────────────────────┤
+│ 🎨 Visual Artist (95% confidence) | 💳 Free    │
+│ 👤 Profile: Independent Artist | 📍 LA        │
+│                                                │
+│ 📊 Usage Stats:                               │
+│ • 74 messages, 8 reports, 12 sessions         │
+│ • Active 28 days, avg 6.2 msgs/session        │
+│ • Artists: Primarily 1 (self), 2 collabs      │
+│ • Timeline: 4 call transcripts, 2 meetings    │
+│                                                │
+│ 🎯 Segment Insights:                          │
+│ • Typical visual artist behavior match: 92%   │
+│ • Above avg engagement for segment             │
+│ • Unique: More technical questions than peers  │
+│                                                │
+│ 🤖 AI Insights:                               │
+│ • High engagement independent artist           │
+│ • Pain point: Visual collaboration tools       │
+│ • Opportunity: Pro features for visual workflow│
+│ • Evolution: Becoming more business-focused    │
+│                                                │
+│ 💬 Key Conversations: [samples]               │
+│ 📋 Recommendations: [actionable items]        │
+│ 🔍 Search Knowledge Base | 📞 Add Call Notes  │
+│ [Export Analysis] [Edit Profile] [Close] ───  │
+└────────────────────────────────────────────────┘
+```
+
+### 🤔 **Questions for Validation**
+1. Should the analysis be real-time or cached with periodic updates?
+2. What LLM provider/model should we use? (OpenAI, Anthropic, local model?)
+3. How many conversation samples should we send to LLM? (token/cost limits)
+4. Should we include conversation analysis in the export feature?
+5. Do we want batch analysis capabilities for multiple users?
+6. Should this be admin-only or available to all dashboard users?
+7. **V2 Questions:**
+   - GraphRAG vs Enhanced Supabase for knowledge storage?
+   - How often should user type classifications be re-evaluated?
+   - Should we expose segment insights to users themselves?
+   - What's the minimum confidence score to display user type classification?
+
+### 📈 **Success Metrics**
+- User analysis completion rate
+- Time to insights generation
+- Manual profile data completion rate
+- Feature adoption based on recommendations
+- User engagement improvements from insights
+- **V2 Metrics:**
+  - User type classification accuracy
+  - Knowledge base utilization rate
+  - Segment insight actionability score
+  - Cross-user pattern discovery rate
+
+---
