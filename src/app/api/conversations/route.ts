@@ -370,9 +370,8 @@ export async function GET(request: NextRequest) {
       try {
         const { data: memoriesData, error: memoriesError } = await supabaseAdmin
           .from('memories')
-          .select('room_id')
-          .in('room_id', batch)
-          .eq('role', 'user');  // Only count user messages
+          .select('room_id, role')
+          .in('room_id', batch);
           
         if (memoriesError) {
           console.error(`Error fetching message counts for batch ${Math.floor(i/batchSize) + 1}:`, memoriesError);
@@ -381,9 +380,19 @@ export async function GET(request: NextRequest) {
         
         if (memoriesData && memoriesData.length > 0) {
           // Count occurrences of each room_id in this batch
-          for (const memory of memoriesData as { room_id: string }[]) {
+          const roleStats = new Map<string, number>();
+          for (const memory of memoriesData as { room_id: string; role: string }[]) {
             const count = messageCountMap.get(memory.room_id) || 0;
             messageCountMap.set(memory.room_id, count + 1);
+            
+            // Track role statistics for debugging
+            const roleCount = roleStats.get(memory.role) || 0;
+            roleStats.set(memory.role, roleCount + 1);
+          }
+          
+          // Log role statistics for debugging
+          if (i === 0) { // Only log for first batch to avoid spam
+            console.log(`API ROUTE: Message role distribution:`, Array.from(roleStats.entries()));
           }
         }
       } catch (error) {

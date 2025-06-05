@@ -178,9 +178,19 @@ export default function ConversationsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
-  
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [conversationDetail, setConversationDetail] = useState<any | null>(null);
+  const [analytics, setAnalytics] = useState<any>({});
+  const [activeFilter, setActiveFilter] = useState('last7days');
+  const [userLeaderboard, setUserLeaderboard] = useState<any[]>([]);
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+  const [leaderboardSort, setLeaderboardSort] = useState('activity');
+  const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
+  const [annotationText, setAnnotationText] = useState<string>('');
+  const [showAnnotationForm, setShowAnnotationForm] = useState(false);
+  const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
+  const [refreshChartToggle, setRefreshChartToggle] = useState(false); // To trigger re-fetch
+
   // Active Users state
   const [activeUsersData, setActiveUsersData] = useState({
     activeUsers: 0,
@@ -227,17 +237,33 @@ export default function ConversationsPage() {
   // Add loading states for leaderboard data
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
-  // Add state for leaderboard sort
-  const [leaderboardSort, setLeaderboardSort] = useState('activity');
-
   // Add state for user filter
   const [selectedUserFilter, setSelectedUserFilter] = useState<string | null>(null);
 
   // Add state for leaderboard filtering
-  const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
   const [pmfSurveyReadyUsers, setPmfSurveyReadyUsers] = useState<string[]>([]);
   const [powerUsersEmails, setPowerUsersEmails] = useState<string[]>([]);
   const [leaderboardFilterLoading, setLeaderboardFilterLoading] = useState(false);
+
+  // Add state for expanded user analysis
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+
+  // Add state for profile editing
+  const [userProfiles, setUserProfiles] = useState<Record<string, {
+    company?: string;
+    job_title?: string;
+    meeting_notes?: string;
+    observations?: string;
+    pain_points?: string;
+    opportunities?: string;
+    context_notes?: string;
+    tags?: string[];
+    sentiment?: 'positive' | 'neutral' | 'negative' | 'frustrated';
+    last_contact_date?: string;
+  }>>({});
+  const [editingProfile, setEditingProfile] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState<string | null>(null);
+  const [bulkSyncing, setBulkSyncing] = useState(false);
 
   const [showChart, setShowChart] = useState(false);
   const [chartData, setChartData] = useState<MyChartData | null>(null);
@@ -249,8 +275,94 @@ export default function ConversationsPage() {
   const [annotationModalDate, setAnnotationModalDate] = useState(''); // YYYY-MM-DD
   const [annotationModalDescription, setAnnotationModalDescription] = useState('');
   const [isSavingAnnotation, setIsSavingAnnotation] = useState(false);
-  const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
-  const [refreshChartToggle, setRefreshChartToggle] = useState(false); // To trigger re-fetch
+
+  // Function to get user type badge based on profile and activity
+  const getUserTypeBadge = (user: { totalActivity: number; messages: number; reports: number }, profile?: {
+    company?: string;
+    job_title?: string;
+    meeting_notes?: string;
+    observations?: string;
+    pain_points?: string;
+    opportunities?: string;
+    context_notes?: string;
+    tags?: string[];
+    sentiment?: 'positive' | 'neutral' | 'negative' | 'frustrated';
+    last_contact_date?: string;
+  }) => {
+    if (!profile) {
+      // Based on activity only
+      if (user.totalActivity === 0) return { text: '🔘 Inactive', color: 'bg-gray-100 text-gray-600' };
+      if (user.reports > user.messages) return { text: '📊 Analyst', color: 'bg-purple-100 text-purple-700' };
+      if (user.messages > 20 && user.reports === 0) return { text: '💬 Communicator', color: 'bg-blue-100 text-blue-700' };
+      if (user.messages > 10 && user.reports > 5) return { text: '🚀 Power User', color: 'bg-green-100 text-green-700' };
+      if (user.messages > 0 && user.reports > 0) return { text: '⚖️ Balanced', color: 'bg-yellow-100 text-yellow-700' };
+      return { text: '🌱 New User', color: 'bg-gray-100 text-gray-600' };
+    }
+
+    // Enhanced with profile data
+    if (profile.company && profile.job_title) {
+      if (profile.job_title.toLowerCase().includes('ceo') || profile.job_title.toLowerCase().includes('founder')) {
+        return { text: '👑 Executive', color: 'bg-red-100 text-red-700' };
+      }
+      if (profile.job_title.toLowerCase().includes('manager') || profile.job_title.toLowerCase().includes('director')) {
+        return { text: '👔 Manager', color: 'bg-indigo-100 text-indigo-700' };
+      }
+      if (profile.job_title.toLowerCase().includes('engineer') || profile.job_title.toLowerCase().includes('developer')) {
+        return { text: '⚙️ Technical', color: 'bg-cyan-100 text-cyan-700' };
+      }
+      if (profile.job_title.toLowerCase().includes('design') || profile.job_title.toLowerCase().includes('creative')) {
+        return { text: '🎨 Creative', color: 'bg-pink-100 text-pink-700' };
+      }
+      if (profile.job_title.toLowerCase().includes('marketing') || profile.job_title.toLowerCase().includes('growth')) {
+        return { text: '📈 Marketing', color: 'bg-orange-100 text-orange-700' };
+      }
+    }
+
+    // Fallback to activity-based
+    return getUserTypeBadge(user);
+  };
+
+  // Function to calculate profile completeness
+  const getProfileCompleteness = (profile?: {
+    company?: string;
+    job_title?: string;
+    meeting_notes?: string;
+    observations?: string;
+    pain_points?: string;
+    opportunities?: string;
+    context_notes?: string;
+  }) => {
+    if (!profile) return 0;
+    
+    const fields = [
+      profile.company,
+      profile.job_title, 
+      profile.meeting_notes,
+      profile.observations,
+      profile.pain_points,
+      profile.opportunities,
+      profile.context_notes
+    ];
+    
+    const filledFields = fields.filter((field) => field && field.trim().length > 0).length;
+    return Math.round((filledFields / fields.length) * 100);
+  };
+
+  // Function to get unique companies and roles for filtering
+  const getFilterOptions = () => {
+    const companies = new Set<string>();
+    const roles = new Set<string>();
+    
+    Object.values(userProfiles).forEach((profile) => {
+      if (profile?.company) companies.add(profile.company);
+      if (profile?.job_title) roles.add(profile.job_title);
+    });
+    
+    return {
+      companies: Array.from(companies).sort(),
+      roles: Array.from(roles).sort()
+    };
+  };
 
   // Reset page when filters change
   useEffect(() => {
@@ -752,6 +864,119 @@ export default function ConversationsPage() {
     fetchLeaderboardFilterData();
   }, [timeFilter, excludeTestEmails, leaderboardFilter]);
 
+  // Function to load user profile
+  const loadUserProfile = async (email: string) => {
+    try {
+      const response = await fetch(`/api/user-profiles?email=${encodeURIComponent(email)}`);
+      const data = await response.json();
+      
+      if (data.profile) {
+        setUserProfiles(prev => ({
+          ...prev,
+          [email]: data.profile
+        }));
+      } else {
+        // If no profile exists, try to get company suggestion
+        await loadCompanySuggestion(email);
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+    }
+  };
+
+  // Function to load company suggestion from sales dashboard
+  const loadCompanySuggestion = async (email: string) => {
+    try {
+      const response = await fetch(`/api/suggest-company?email=${encodeURIComponent(email)}`);
+      const data = await response.json();
+      
+      if (data.suggestion) {
+        // Pre-populate company field with suggestion
+        setUserProfiles(prev => ({
+          ...prev,
+          [email]: {
+            ...prev[email],
+            company: data.suggestion.company
+          }
+        }));
+        console.log(`💡 Auto-suggested company "${data.suggestion.company}" for ${email}`);
+      }
+    } catch (error) {
+      console.error('Error loading company suggestion:', error);
+    }
+  };
+
+  // Function to save user profile
+  const saveUserProfile = async (email: string, profileData: {
+    company?: string;
+    job_title?: string;
+    meeting_notes?: string;
+    observations?: string;
+    pain_points?: string;
+    opportunities?: string;
+    context_notes?: string;
+    tags?: string[];
+    sentiment?: 'positive' | 'neutral' | 'negative' | 'frustrated';
+    last_contact_date?: string;
+  }) => {
+    try {
+      setProfileSaving(email);
+      
+      const response = await fetch('/api/user-profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, ...profileData })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setUserProfiles(prev => ({
+          ...prev,
+          [email]: data.profile
+        }));
+        setEditingProfile(null);
+      }
+    } catch (error) {
+      console.error('Error saving user profile:', error);
+    } finally {
+      setProfileSaving(null);
+    }
+  };
+
+  // Function to bulk sync companies from sales dashboard
+  const bulkSyncCompanies = async () => {
+    try {
+      setBulkSyncing(true);
+      
+      const response = await fetch('/api/sync-user-companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log(`✅ Bulk sync complete: ${data.details.profilesUpdated} profiles updated`);
+        
+        // Refresh profiles for visible users to show updated data
+        const visibleEmails = Object.keys(userProfiles);
+        for (const email of visibleEmails) {
+          await loadUserProfile(email);
+        }
+        
+        alert(`Success! Synced company data for ${data.details.profilesUpdated} users.`);
+      } else {
+        alert('Sync failed: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error bulk syncing companies:', error);
+      alert('Sync failed due to an error.');
+    } finally {
+      setBulkSyncing(false);
+    }
+  };
+
   return (
     <main className="p-4 sm:p-8">
       {/* Toggle button for cards/chart */}
@@ -1141,34 +1366,43 @@ export default function ConversationsPage() {
               )}
             </div>
 
-            {/* User Leaderboard Section */}
+            {/* User Leaderboard (Time Filtered) */}
             <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold">User Leaderboard</h2>
-                <div className="flex items-center gap-4">
-                  {/* Filter selector */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-2">
+                <h2 className="text-2xl font-bold">User Leaderboard</h2>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <label htmlFor="leaderboard-filter" className="mr-2 font-medium text-sm">Filter:</label>
                   <select
+                    id="leaderboard-filter"
                     value={leaderboardFilter}
-                    onChange={(e) => setLeaderboardFilter(e.target.value as 'all' | 'pmf-ready' | 'power-users')}
+                    onChange={e => setLeaderboardFilter(e.target.value as any)}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    title="Filter leaderboard by user segment"
+                    title="Filter users by type"
                   >
                     <option value="all">All Users</option>
                     <option value="pmf-ready">PMF Survey Ready</option>
                     <option value="power-users">Power Users</option>
                   </select>
-                  
-                  {/* Sort selector */}
+                  <label htmlFor="leaderboard-sort" className="ml-4 mr-2 font-medium text-sm">Sort by:</label>
                   <select
+                    id="leaderboard-sort"
                     value={leaderboardSort}
                     onChange={(e) => setLeaderboardSort(e.target.value)}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    title="Sort leaderboard by messages, reports, or total activity"
+                    title="Sort leaderboard by messages, reports, or all actions"
                   >
                     <option value="messages">Sort by Messages</option>
                     <option value="reports">Sort by Reports</option>
-                    <option value="activity">Sort by All Activity</option>
+                    <option value="activity">Sort by All Actions</option>
                   </select>
+                  <button
+                    onClick={bulkSyncCompanies}
+                    disabled={bulkSyncing}
+                    className="ml-4 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Sync company data from sales dashboard based on email domains"
+                  >
+                    {bulkSyncing ? '⏳ Syncing...' : '🔄 Sync Companies'}
+                  </button>
                 </div>
               </div>
 
@@ -1245,39 +1479,342 @@ export default function ConversationsPage() {
                     users = users.slice(0, 20);
                     
                     return users.map((user, index) => (
-                      <button
-                        key={user.email}
-                        type="button"
-                        onClick={() => setSelectedUserFilter(user.email)}
-                        className={`w-full flex items-center justify-between p-4 rounded-lg transition-colors text-left ${
-                          selectedUserFilter === user.email 
-                            ? 'bg-blue-50 border-2 border-blue-500' 
-                            : 'hover:bg-gray-50 border-2 border-transparent'
-                        }`}
-                        title={`Click to filter conversations by ${user.email}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
-                            {index + 1}
+                      <div key={user.email}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (expandedUser === user.email) {
+                              setExpandedUser(null); // Collapse if already expanded
+                            } else {
+                              setExpandedUser(user.email); // Expand this user
+                              setSelectedUserFilter(user.email); // Also set as filter
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between p-4 rounded-lg transition-colors text-left ${
+                            expandedUser === user.email
+                              ? 'bg-blue-50 border-2 border-blue-500' 
+                              : selectedUserFilter === user.email 
+                                ? 'bg-blue-50 border-2 border-blue-500' 
+                                : 'hover:bg-gray-50 border-2 border-transparent'
+                          }`}
+                          title={`Click to ${expandedUser === user.email ? 'collapse' : 'expand'} user analysis for ${user.email}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                              {index + 1}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className="font-medium text-gray-900 truncate max-w-xs">
+                                  {user.email}
+                                </div>
+                                {(() => {
+                                  const profile = userProfiles[user.email];
+                                  const badge = getUserTypeBadge(user, profile);
+                                  return (
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
+                                      {badge.text}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-sm text-gray-500">
+                                  {user.messages} messages, {user.reports} reports
+                                </div>
+                                {userProfiles[user.email] && (
+                                  <div className="flex items-center gap-1">
+                                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                                    <span className="text-xs text-green-600 font-medium">
+                                      {getProfileCompleteness(userProfiles[user.email])}% profile
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-medium text-gray-900 truncate max-w-xs">
-                              {user.email}
+                          <div className="text-right">
+                            <div className="font-medium text-gray-900">
+                              {leaderboardSort === 'messages' ? user.messages : leaderboardSort === 'reports' ? user.reports : user.totalActivity}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {user.messages} messages, {user.reports} reports
+                              {leaderboardSort === 'messages' ? 'messages' : leaderboardSort === 'reports' ? 'reports' : 'actions'}
                             </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-medium text-gray-900">
-                            {leaderboardSort === 'messages' ? user.messages : leaderboardSort === 'reports' ? user.reports : user.totalActivity}
+                        </button>
+                        
+                        {/* Streamlined Expanded User Analysis Card */}
+                        {expandedUser === user.email && (
+                          <div className="mt-2 p-4 bg-gray-50 border-l-4 border-blue-500 rounded-r-lg">
+                            {/* Header with Quick Actions */}
+                            <div className="flex justify-between items-center mb-4">
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedUserFilter(user.email);
+                                    setExpandedUser(null);
+                                  }}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                                >
+                                  🔍 Filter Conversations
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(user.email);
+                                  }}
+                                  className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+                                >
+                                  📋 Copy Email
+                                </button>
+                                {editingProfile === user.email ? (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        const profile = userProfiles[user.email] || {};
+                                        saveUserProfile(user.email, profile);
+                                      }}
+                                      disabled={profileSaving === user.email}
+                                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                    >
+                                      {profileSaving === user.email ? '⏳ Saving...' : '💾 Save Profile'}
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingProfile(null)}
+                                      className="px-3 py-1.5 bg-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-400 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditingProfile(user.email);
+                                      if (!userProfiles[user.email]) {
+                                        loadUserProfile(user.email);
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
+                                  >
+                                    👤 Edit Profile
+                                  </button>
+                                )}
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedUser(null);
+                                }}
+                                className="text-gray-400 hover:text-gray-600 text-lg"
+                                title="Close analysis"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            
+                            <div className="space-y-4">
+                              {/* Key Insights Summary */}
+                              <div className="bg-white p-4 rounded-lg">
+                                <h4 className="font-semibold text-gray-900 mb-3">📊 Key Insights</h4>
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <span className="font-medium text-gray-700">Activity:</span>
+                                    <span className="text-gray-600">{user.totalActivity} total actions (#{index + 1} of {users.length} users)</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <span className="font-medium text-gray-700">Pattern:</span>
+                                    <span className="text-gray-600">
+                                      {user.totalActivity === 0 ? 'No activity yet' :
+                                       user.messages === 0 ? 'Reports only' :
+                                       user.reports === 0 ? 'Messages only' :
+                                       `${Math.round((user.messages / user.totalActivity) * 100)}% messages, ${Math.round((user.reports / user.totalActivity) * 100)}% reports`}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <span className="font-medium text-gray-700">Status:</span>
+                                    <span className="text-gray-600">
+                                      {(() => {
+                                        if (index === 0) return '👑 Top user - key engagement driver';
+                                        if (index < 3) return '⭐ Top 3 user - valuable for feedback';
+                                        if (index < users.length * 0.1) return '🎖️ Top 10% user';
+                                        if (user.totalActivity > 20) return '✅ Active user';
+                                        if (user.totalActivity > 5) return '📈 Moderate engagement';
+                                        return '🌱 Light usage';
+                                      })()}
+                                    </span>
+                                  </div>
+                                  
+                                </div>
+                              </div>
+
+                              {/* Admin Profile Section */}
+                              <div className="bg-white p-4 rounded-lg">
+                                <h4 className="font-semibold text-gray-900 mb-3">
+                                  👤 Admin Profile
+                                  {userProfiles[user.email] && (
+                                    <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                      {getProfileCompleteness(userProfiles[user.email])}% complete
+                                    </span>
+                                  )}
+                                </h4>
+                                
+                                {editingProfile === user.email ? (
+                                  /* Profile Editing Form */
+                                  <div className="space-y-3 text-sm">
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                                          Company
+                                          {userProfiles[user.email]?.company && (
+                                            <span className="ml-1 text-xs text-green-600 font-normal">
+                                              (auto-suggested from sales dashboard)
+                                            </span>
+                                          )}
+                                        </label>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g., Spotify"
+                                          value={userProfiles[user.email]?.company || ''}
+                                          onChange={(e) => setUserProfiles(prev => ({
+                                            ...prev,
+                                            [user.email]: { ...prev[user.email], company: e.target.value }
+                                          }))}
+                                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">Job Title</label>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g., Marketing Director"
+                                          value={userProfiles[user.email]?.job_title || ''}
+                                          onChange={(e) => setUserProfiles(prev => ({
+                                            ...prev,
+                                            [user.email]: { ...prev[user.email], job_title: e.target.value }
+                                          }))}
+                                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                        />
+                                      </div>
+                                    </div>
+                                    
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">Key Observations</label>
+                                      <textarea
+                                        placeholder="Important insights about this user..."
+                                        value={userProfiles[user.email]?.observations || ''}
+                                        onChange={(e) => setUserProfiles(prev => ({
+                                          ...prev,
+                                          [user.email]: { ...prev[user.email], observations: e.target.value }
+                                        }))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                        rows={3}
+                                      />
+                                    </div>
+                                    
+                                    <details className="border border-gray-200 rounded-lg">
+                                      <summary className="px-3 py-2 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                        🔽 Additional Context
+                                      </summary>
+                                      <div className="p-3 border-t space-y-3">
+                                        <div>
+                                          <label className="block text-xs font-medium text-gray-700 mb-1">Meeting Notes</label>
+                                          <textarea
+                                            placeholder="Call transcripts, meeting summaries..."
+                                            value={userProfiles[user.email]?.meeting_notes || ''}
+                                            onChange={(e) => setUserProfiles(prev => ({
+                                              ...prev,
+                                              [user.email]: { ...prev[user.email], meeting_notes: e.target.value }
+                                            }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                            rows={2}
+                                          />
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Pain Points</label>
+                                            <textarea
+                                              placeholder="What frustrates them..."
+                                              value={userProfiles[user.email]?.pain_points || ''}
+                                              onChange={(e) => setUserProfiles(prev => ({
+                                                ...prev,
+                                                [user.email]: { ...prev[user.email], pain_points: e.target.value }
+                                              }))}
+                                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                              rows={2}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Opportunities</label>
+                                            <textarea
+                                              placeholder="Upsell/expansion potential..."
+                                              value={userProfiles[user.email]?.opportunities || ''}
+                                              onChange={(e) => setUserProfiles(prev => ({
+                                                ...prev,
+                                                [user.email]: { ...prev[user.email], opportunities: e.target.value }
+                                              }))}
+                                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                              rows={2}
+                                            />
+                                          </div>
+                                        </div>
+                                        
+                                        <div>
+                                          <label className="block text-xs font-medium text-gray-700 mb-1">LLM Context</label>
+                                          <textarea
+                                            placeholder="Additional context to help AI understand this user..."
+                                            value={userProfiles[user.email]?.context_notes || ''}
+                                            onChange={(e) => setUserProfiles(prev => ({
+                                              ...prev,
+                                              [user.email]: { ...prev[user.email], context_notes: e.target.value }
+                                            }))}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                            rows={2}
+                                          />
+                                        </div>
+                                      </div>
+                                    </details>
+                                  </div>
+                                ) : (
+                                  /* Profile Display */
+                                  <div className="text-sm">
+                                    {userProfiles[user.email] ? (
+                                      <div className="space-y-2">
+                                        {userProfiles[user.email]?.company && (
+                                          <div className="flex gap-2">
+                                            <span className="font-medium text-gray-700">🏢 Company:</span>
+                                            <span className="text-gray-600">{userProfiles[user.email].company}</span>
+                                          </div>
+                                        )}
+                                        {userProfiles[user.email]?.job_title && (
+                                          <div className="flex gap-2">
+                                            <span className="font-medium text-gray-700">💼 Role:</span>
+                                            <span className="text-gray-600">{userProfiles[user.email].job_title}</span>
+                                          </div>
+                                        )}
+                                        {userProfiles[user.email]?.observations && (
+                                          <div className="flex gap-2">
+                                            <span className="font-medium text-gray-700">📝 Notes:</span>
+                                            <span className="text-gray-600">{userProfiles[user.email].observations}</span>
+                                          </div>
+                                        )}
+                                        {(!userProfiles[user.email]?.company && !userProfiles[user.email]?.job_title && !userProfiles[user.email]?.observations) && (
+                                          <div className="text-gray-400 italic">No profile information yet</div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="text-gray-400 italic bg-gray-50 p-3 rounded border-2 border-dashed border-gray-200 text-center">
+                                        Click "Edit Profile" to add admin context for this user
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-sm text-gray-500">
-                            {leaderboardSort === 'messages' ? 'messages' : leaderboardSort === 'reports' ? 'reports' : 'total activity'}
-                          </div>
-                        </div>
-                      </button>
+                        )}
+                      </div>
                     ));
                   })()}
                   
@@ -1317,6 +1854,16 @@ export default function ConversationsPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
+                  </div>
+                  
+                  {/* Stats Pills */}
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                      {totalCount.toLocaleString()} conversations
+                    </span>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                      {totalUniqueUsers.toLocaleString()} users
+                    </span>
                   </div>
                   
                   {/* Test Email Toggle */}
@@ -1368,21 +1915,7 @@ export default function ConversationsPage() {
                 </div>
               )}
 
-              {/* Conversation Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="text-sm text-gray-600">Total Conversations</div>
-                  <div className="text-2xl font-bold text-gray-900">{totalCount.toLocaleString()}</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="text-sm text-gray-600">Unique Users</div>
-                  <div className="text-2xl font-bold text-gray-900">{totalUniqueUsers.toLocaleString()}</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="text-sm text-gray-600">Current Page</div>
-                  <div className="text-2xl font-bold text-gray-900">{currentPage} of {totalPages}</div>
-                </div>
-              </div>
+
 
               {/* Loading State */}
               {loading && (
@@ -1438,11 +1971,6 @@ export default function ConversationsPage() {
                                   {new Date(conversation.last_message_date).toLocaleDateString()} at{' '}
                                   {new Date(conversation.last_message_date).toLocaleTimeString()}
                                 </p>
-                              </div>
-                              <div className="ml-4 flex-shrink-0">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                  {conversation.messageCount || 0} msgs
-                                </span>
                               </div>
                             </div>
                           </div>
