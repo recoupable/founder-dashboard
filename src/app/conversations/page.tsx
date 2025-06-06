@@ -384,22 +384,6 @@ export default function ConversationsPage() {
     return Math.round((filledFields / fields.length) * 100);
   };
 
-  // Function to get unique companies and roles for filtering
-  const getFilterOptions = () => {
-    const companies = new Set<string>();
-    const roles = new Set<string>();
-    
-    Object.values(userProfiles).forEach((profile) => {
-      if (profile?.company) companies.add(profile.company);
-      if (profile?.job_title) roles.add(profile.job_title);
-    });
-    
-    return {
-      companies: Array.from(companies).sort(),
-      roles: Array.from(roles).sort()
-    };
-  };
-
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
