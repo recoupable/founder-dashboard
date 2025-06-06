@@ -3,10 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import 'chartjs-adapter-date-fns'; // Import the date adapter for side effects
 import { conversationService } from '@/lib/conversationService';
-import type { ConversationListItem, ConversationDetail, ConversationFilters } from '@/lib/conversationService';
+import type { Message, ConversationFilters, ConversationListItem, ConversationDetail } from '@/lib/conversationService';
 import ReactMarkdown from 'react-markdown';
 import { MagnifyingGlassIcon, CogIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { createClient } from '@supabase/supabase-js';
+
 import { Line } from 'react-chartjs-2';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import {
@@ -178,16 +179,10 @@ export default function ConversationsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [conversationDetail, setConversationDetail] = useState<any | null>(null);
-  const [analytics, setAnalytics] = useState<any>({});
-  const [activeFilter, setActiveFilter] = useState('last7days');
-  const [userLeaderboard, setUserLeaderboard] = useState<any[]>([]);
-  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
   const [leaderboardSort, setLeaderboardSort] = useState('activity');
   const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
-  const [annotationText, setAnnotationText] = useState<string>('');
-  const [showAnnotationForm, setShowAnnotationForm] = useState(false);
   const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
   const [refreshChartToggle, setRefreshChartToggle] = useState(false); // To trigger re-fetch
 
@@ -247,6 +242,47 @@ export default function ConversationsPage() {
 
   // Add state for expanded user analysis
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  
+  // Add state for automatic user analysis
+  interface UserAnalysis {
+    user_profile: string;
+    engagement_level: string;
+    primary_use_cases: string[];
+    strengths: string[];
+    pain_points: string[];
+    satisfaction_level: string;
+    ai_performance: string;
+    top_recommendations: string[];
+    user_journey_stage: string;
+    key_insights: string[];
+    conversation_themes: string[];
+    growth_opportunities: string[];
+  }
+  const [userAnalysisLoading, setUserAnalysisLoading] = useState<Record<string, boolean>>({});
+  const [userAnalysisResults, setUserAnalysisResults] = useState<Record<string, UserAnalysis>>({});
+  const [userAnalysisErrors, setUserAnalysisErrors] = useState<Record<string, string>>({});
+
+  // Add state for user activity details
+  interface ArtistUsage {
+    artistId: string;
+    artistName: string;
+    rooms: number;
+    messages: number;
+    reports: number;
+    topics: string[];
+    totalActivity: number;
+  }
+  interface UserActivityDetails {
+    newArtistsCreated: number;
+    artistUsage: ArtistUsage[];
+    totalRooms: number;
+    totalMemories: number;
+  }
+  const [userActivityDetails, setUserActivityDetails] = useState<Record<string, UserActivityDetails>>({});
+  const [userActivityLoading, setUserActivityLoading] = useState<Record<string, boolean>>({});
+  
+  // Add state for showing admin profile
+  const [showAdminProfile, setShowAdminProfile] = useState<Record<string, boolean>>({});
 
   // Add state for profile editing
   const [userProfiles, setUserProfiles] = useState<Record<string, {
@@ -348,22 +384,6 @@ export default function ConversationsPage() {
     return Math.round((filledFields / fields.length) * 100);
   };
 
-  // Function to get unique companies and roles for filtering
-  const getFilterOptions = () => {
-    const companies = new Set<string>();
-    const roles = new Set<string>();
-    
-    Object.values(userProfiles).forEach((profile) => {
-      if (profile?.company) companies.add(profile.company);
-      if (profile?.job_title) roles.add(profile.job_title);
-    });
-    
-    return {
-      companies: Array.from(companies).sort(),
-      roles: Array.from(roles).sort()
-    };
-  };
-
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -410,7 +430,7 @@ export default function ConversationsPage() {
       
       try {
         const filters: ConversationFilters = {
-          searchQuery,
+          searchQuery: selectedUserFilter ? '' : searchQuery, // Don't pass searchQuery when filtering by user
           excludeTestEmails,
           timeFilter,
           page: currentPage,
@@ -977,6 +997,70 @@ export default function ConversationsPage() {
     }
   };
 
+  // Function to automatically run user analysis
+  const runUserAnalysis = async (userEmail: string) => {
+    // Don't run analysis if it's already loading or if we already have results
+    if (userAnalysisLoading[userEmail] || userAnalysisResults[userEmail]) {
+      return;
+    }
+
+    setUserAnalysisLoading(prev => ({ ...prev, [userEmail]: true }));
+    setUserAnalysisErrors(prev => ({ ...prev, [userEmail]: '' }));
+
+    try {
+      const response = await fetch('/api/user-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userEmail }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      if (data.success && data.analysis) {
+        setUserAnalysisResults(prev => ({ ...prev, [userEmail]: data.analysis }));
+      } else {
+        throw new Error(data.error || 'Analysis failed');
+      }
+    } catch (err) {
+      console.error('Error running user analysis:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setUserAnalysisErrors(prev => ({ ...prev, [userEmail]: errorMessage }));
+    } finally {
+      setUserAnalysisLoading(prev => ({ ...prev, [userEmail]: false }));
+    }
+  };
+
+  // Function to fetch user activity details
+  const fetchUserActivityDetails = async (userEmail: string) => {
+    // Don't fetch if it's already loading or if we already have results
+    if (userActivityLoading[userEmail] || userActivityDetails[userEmail]) {
+      return;
+    }
+
+    setUserActivityLoading(prev => ({ ...prev, [userEmail]: true }));
+
+    try {
+      const response = await fetch(`/api/user-activity-details?email=${encodeURIComponent(userEmail)}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      setUserActivityDetails(prev => ({ ...prev, [userEmail]: data }));
+    } catch (err) {
+      console.error('Error fetching user activity details:', err);
+    } finally {
+      setUserActivityLoading(prev => ({ ...prev, [userEmail]: false }));
+    }
+  };
+
   return (
     <main className="p-4 sm:p-8">
       {/* Toggle button for cards/chart */}
@@ -1375,7 +1459,7 @@ export default function ConversationsPage() {
                   <select
                     id="leaderboard-filter"
                     value={leaderboardFilter}
-                    onChange={e => setLeaderboardFilter(e.target.value as any)}
+                    onChange={e => setLeaderboardFilter(e.target.value as 'all' | 'pmf-ready' | 'power-users')}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     title="Filter users by type"
                   >
@@ -1488,6 +1572,9 @@ export default function ConversationsPage() {
                             } else {
                               setExpandedUser(user.email); // Expand this user
                               setSelectedUserFilter(user.email); // Also set as filter
+                              setSearchQuery(''); // Clear search query to avoid conflicts
+                              runUserAnalysis(user.email); // Automatically run analysis
+                              fetchUserActivityDetails(user.email); // Fetch structured activity data
                             }
                           }}
                           className={`w-full flex items-center justify-between p-4 rounded-lg transition-colors text-left ${
@@ -1553,6 +1640,7 @@ export default function ConversationsPage() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedUserFilter(user.email);
+                                    setSearchQuery(''); // Clear search query to avoid conflicts
                                     setExpandedUser(null);
                                   }}
                                   className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
@@ -1590,27 +1678,33 @@ export default function ConversationsPage() {
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      setEditingProfile(user.email);
-                                      if (!userProfiles[user.email]) {
-                                        loadUserProfile(user.email);
-                                      }
+                                      setShowAdminProfile(prev => ({
+                                        ...prev,
+                                        [user.email]: !prev[user.email]
+                                      }));
                                     }}
-                                    className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
+                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                      showAdminProfile[user.email] 
+                                        ? 'bg-orange-600 text-white hover:bg-orange-700' 
+                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`}
                                   >
-                                    👤 Edit Profile
+                                    ⚙️ Profile
                                   </button>
                                 )}
                               </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedUser(null);
-                                }}
-                                className="text-gray-400 hover:text-gray-600 text-lg"
-                                title="Close analysis"
-                              >
-                                ✕
-                              </button>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedUser(null);
+                                  }}
+                                  className="text-gray-400 hover:text-gray-600 text-lg"
+                                  title="Close analysis"
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             </div>
                             
                             <div className="space-y-4">
@@ -1649,15 +1743,52 @@ export default function ConversationsPage() {
                               </div>
 
                               {/* Admin Profile Section */}
-                              <div className="bg-white p-4 rounded-lg">
-                                <h4 className="font-semibold text-gray-900 mb-3">
-                                  👤 Admin Profile
-                                  {userProfiles[user.email] && (
-                                    <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                                      {getProfileCompleteness(userProfiles[user.email])}% complete
-                                    </span>
-                                  )}
-                                </h4>
+                              {showAdminProfile[user.email] && (
+                                <div className="bg-white p-4 rounded-lg">
+                                  <div className="flex justify-between items-center mb-3">
+                                    <h4 className="font-semibold text-gray-900">
+                                      👤 Admin Profile
+                                      {userProfiles[user.email] && (
+                                        <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                          {getProfileCompleteness(userProfiles[user.email])}% complete
+                                        </span>
+                                      )}
+                                    </h4>
+                                    <div className="flex gap-2">
+                                      {editingProfile === user.email ? (
+                                        <>
+                                          <button
+                                            onClick={() => {
+                                              const profile = userProfiles[user.email] || {};
+                                              saveUserProfile(user.email, profile);
+                                            }}
+                                            disabled={profileSaving === user.email}
+                                            className="px-2 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+                                          >
+                                            {profileSaving === user.email ? '⏳' : '💾'}
+                                          </button>
+                                          <button
+                                            onClick={() => setEditingProfile(null)}
+                                            className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-xs font-medium hover:bg-gray-400 transition-colors"
+                                          >
+                                            ✕
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button
+                                          onClick={() => {
+                                            setEditingProfile(user.email);
+                                            if (!userProfiles[user.email]) {
+                                              loadUserProfile(user.email);
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors"
+                                        >
+                                          ✏️
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
                                 
                                 {editingProfile === user.email ? (
                                   /* Profile Editing Form */
@@ -1805,11 +1936,223 @@ export default function ConversationsPage() {
                                       </div>
                                     ) : (
                                       <div className="text-gray-400 italic bg-gray-50 p-3 rounded border-2 border-dashed border-gray-200 text-center">
-                                        Click "Edit Profile" to add admin context for this user
+                                        Click &quot;Edit Profile&quot; to add admin context for this user
                                       </div>
                                     )}
                                   </div>
                                 )}
+                              </div>
+                            )}
+                              
+                              {/* Structured User Data */}
+                              <div className="bg-white p-4 rounded-lg border-2 border-gray-100">
+                                <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                  📊 User Activity Breakdown
+                                  {userActivityLoading[user.email] && (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                                  )}
+                                </h4>
+                                
+                                {userActivityLoading[user.email] ? (
+                                  <div className="text-center py-4">
+                                    <div className="text-sm text-gray-600">Loading activity details...</div>
+                                  </div>
+                                ) : userActivityDetails[user.email] ? (
+                                  <div className="space-y-4">
+                                    {/* Key Stats */}
+                                    <div className="grid grid-cols-4 gap-3">
+                                      <div className="bg-blue-50 p-2 rounded text-center">
+                                        <div className="text-xs text-gray-600">New Artists Created</div>
+                                        <div className="text-sm font-medium">{userActivityDetails[user.email].newArtistsCreated}</div>
+                                      </div>
+                                      <div className="bg-green-50 p-2 rounded text-center">
+                                        <div className="text-xs text-gray-600">Total Rooms</div>
+                                        <div className="text-sm font-medium">{userActivityDetails[user.email].totalRooms}</div>
+                                      </div>
+                                      <div className="bg-purple-50 p-2 rounded text-center">
+                                        <div className="text-xs text-gray-600">Messages</div>
+                                        <div className="text-sm font-medium">{user.messages}</div>
+                                      </div>
+                                      <div className="bg-orange-50 p-2 rounded text-center">
+                                        <div className="text-xs text-gray-600">Reports</div>
+                                        <div className="text-sm font-medium">{user.reports}</div>
+                                      </div>
+                                    </div>
+
+                                    {/* Artist Usage Ranking */}
+                                    {userActivityDetails[user.email].artistUsage.length > 0 && (
+                                      <div>
+                                        <h5 className="text-sm font-medium text-gray-700 mb-2">🎭 Artists Used (Ranked by Activity)</h5>
+                                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                                          {userActivityDetails[user.email].artistUsage.slice(0, 5).map((artist, idx) => (
+                                            <div key={artist.artistId} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-medium text-gray-500">#{idx + 1}</span>
+                                                <span className="font-medium">{artist.artistName}</span>
+                                              </div>
+                                                                                             <div className="flex gap-3 text-xs text-gray-600">
+                                                 <span>{artist.rooms} rooms</span>
+                                                 <span>{artist.messages} msgs</span>
+                                                 <span>{artist.reports} reports</span>
+                                               </div>
+                                            </div>
+                                          ))}
+                                          {userActivityDetails[user.email].artistUsage.length > 5 && (
+                                            <div className="text-xs text-gray-500 text-center">
+                                              ...and {userActivityDetails[user.email].artistUsage.length - 5} more artists
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Topics Preview */}
+                                    {(() => {
+                                      const allTopics = userActivityDetails[user.email].artistUsage
+                                        .flatMap(artist => artist.topics)
+                                        .filter(topic => topic && topic.trim() !== '');
+                                      
+                                      if (allTopics.length > 0) {
+                                        const uniqueTopics = [...new Set(allTopics)];
+                                        return (
+                                          <div>
+                                            <h5 className="text-sm font-medium text-gray-700 mb-2">💭 Recent Topics</h5>
+                                            <div className="flex flex-wrap gap-1">
+                                              {uniqueTopics.slice(0, 6).map((topic, idx) => (
+                                                <span key={idx} className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
+                                                  {topic.length > 25 ? `${topic.substring(0, 25)}...` : topic}
+                                                </span>
+                                              ))}
+                                              {uniqueTopics.length > 6 && (
+                                                <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full text-xs">
+                                                  +{uniqueTopics.length - 6} more
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                  </div>
+                                ) : (
+                                  <div className="text-center py-4">
+                                    <div className="text-sm text-gray-500">Click to expand for detailed activity breakdown</div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* AI Analysis Results */}
+                              <div className="bg-white p-4 rounded-lg border-2 border-blue-100">
+                                <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                                  🧠 AI Behavioral Analysis
+                                  {userAnalysisLoading[user.email] && (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                  )}
+                                </h4>
+
+                                {userAnalysisLoading[user.email] ? (
+                                  <div className="text-center text-gray-500 py-4">Analyzing...</div>
+                                ) : userAnalysisErrors[user.email] ? (
+                                  <div className="text-center text-red-500 py-4">Error: {userAnalysisErrors[user.email]}</div>
+                                ) : userAnalysisResults[user.email] ? (
+                                  (() => {
+                                    const analysis = userAnalysisResults[user.email];
+                                    if (!analysis) return null;
+                                    return (
+                                      <div className="space-y-4">
+                                        {/* User Profile and Key Metrics */}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                                          <div className="bg-blue-50 p-3 rounded-lg">
+                                            <div className="text-xs font-semibold text-gray-500 mb-1">Profile</div>
+                                            <div className="text-sm font-medium text-gray-800">{analysis.user_profile}</div>
+                                          </div>
+                                          <div className="bg-green-50 p-3 rounded-lg">
+                                            <div className="text-xs font-semibold text-gray-500 mb-1">Satisfaction</div>
+                                            <div className="text-sm font-medium text-gray-800 capitalize">{analysis.satisfaction_level}</div>
+                                          </div>
+                                          <div className="bg-purple-50 p-3 rounded-lg">
+                                            <div className="text-xs font-semibold text-gray-500 mb-1">Engagement</div>
+                                            <div className="text-sm font-medium text-gray-800 capitalize">{analysis.engagement_level}</div>
+                                          </div>
+                                        </div>
+
+                                        {/* Key Insights */}
+                                        <div className="mt-4">
+                                          <h5 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                                              <path fillRule="evenodd" d="M10 20a10 10 0 100-20 10 10 0 000 20zm-5-8a1 1 0 00-1 1v1a1 1 0 102 0v-1a1 1 0 00-1-1zm3 0a1 1 0 00-1 1v1a1 1 0 102 0v-1a1 1 0 00-1-1zm3 0a1 1 0 00-1 1v1a1 1 0 102 0v-1a1 1 0 00-1-1zm3 0a1 1 0 00-1 1v1a1 1 0 102 0v-1a1 1 0 00-1-1zM5 6a1 1 0 00-1 1v1a1 1 0 102 0V7a1 1 0 00-1-1zm3 0a1 1 0 00-1 1v1a1 1 0 102 0V7a1 1 0 00-1-1zm3 0a1 1 0 00-1 1v1a1 1 0 102 0V7a1 1 0 00-1-1zm3 0a1 1 0 00-1 1v1a1 1 0 102 0V7a1 1 0 00-1-1z" clipRule="evenodd" />
+                                            </svg>
+                                            Key Insights
+                                          </h5>
+                                          <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                            {analysis.key_insights.map((insight, i) => <li key={i}>{insight}</li>)}
+                                          </ul>
+                                        </div>
+
+                                        {/* Use Cases & Themes */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                          <div>
+                                            <h5 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm14 0H4v10h12V5zM6 7a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm0 4a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1z" clipRule="evenodd" />
+                                              </svg>
+                                              Use Cases
+                                            </h5>
+                                            <div className="flex flex-wrap gap-2">
+                                              {analysis.primary_use_cases.map((useCase, i) => (
+                                                <span key={i} className="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{useCase}</span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <h5 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-500" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M10 2a6 6 0 00-6 6c0 1.887.863 3.613 2.257 4.773.305.254.622.49.95.709a1 1 0 001.209-.23l.3-.402a1 1 0 00.174-.533C8.61 12.333 8.5 11.18 8.5 10c0-1.883.86-3.606 2.247-4.762a1 1 0 00-.23-1.209l-.402-.3c-.328-.245-.72-.37-1.115-.37zM10 18a6 6 0 006-6c0-1.887-.863-3.613-2.257-4.773a1.002 1.002 0 00-1.159.231l-.3.402a1 1 0 00-.174.533c.278.854.39 1.745.39 2.607 0 1.883-.86 3.606-2.247 4.762a1 1 0 00.23 1.209l.402.3c.328.245.72.37 1.115.37z" />
+                                              </svg>
+                                              Themes
+                                            </h5>
+                                            <div className="flex flex-wrap gap-2">
+                                              {analysis.conversation_themes.map((theme, i) => (
+                                                <span key={i} className="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded-full">{theme}</span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Top Recommendations */}
+                                        {analysis.top_recommendations && analysis.top_recommendations.length > 0 && (
+                                          <div className="mt-4">
+                                            <h5 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-500" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M10 2a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 2zM10 15a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 15zM5.522 6.22a.75.75 0 011.06 0l1.061 1.06a.75.75 0 01-1.06 1.06l-1.06-1.06a.75.75 0 010-1.06zM12.358 12.358a.75.75 0 011.06 0l1.061 1.06a.75.75 0 01-1.06 1.06l-1.06-1.06a.75.75 0 010-1.06zM2 10a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5A.75.75 0 012 10zM15 10a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5A.75.75 0 0115 10zM5.522 13.78a.75.75 0 010-1.06l1.06-1.061a.75.75 0 111.06 1.06l-1.06 1.06a.75.75 0 01-1.06 0zM12.358 7.642a.75.75 0 010-1.06l1.06-1.061a.75.75 0 111.06 1.06l-1.06 1.06a.75.75 0 01-1.06 0z" clipRule="evenodd" />
+                                                <path d="M10 4a6 6 0 100 12 6 6 0 000-12zM8.5 7.5a.5.5 0 00-1 0v5a.5.5 0 001 0v-5zM11.5 7.5a.5.5 0 00-1 0v5a.5.5 0 001 0v-5z" />
+                                              </svg>
+                                              Top Recommendations
+                                            </h5>
+                                            <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
+                                              {analysis.top_recommendations.map((rec, i) => <li key={i}>{rec}</li>)}
+                                            </ul>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })()
+                                ) : (
+                                  <div className="text-center py-4">
+                                    <div className="text-sm text-gray-500">Click to expand for automatic AI analysis</div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Collapsible section for detailed activity */}
+                              <div className="mt-4">
+                                <button
+                                  onClick={() => setExpandedUser(null)}
+                                  className="text-blue-500 hover:underline"
+                                >
+                                  {expandedUser ? 'Collapse' : 'Expand'} detailed activity
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -1907,15 +2250,16 @@ export default function ConversationsPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedUserFilter(null)}
+                    onClick={() => {
+                      setSelectedUserFilter(null);
+                      setSearchQuery(''); // Also clear search query
+                    }}
                     className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                   >
                     Clear Filter
                   </button>
                 </div>
               )}
-
-
 
               {/* Loading State */}
               {loading && (
@@ -2023,7 +2367,7 @@ export default function ConversationsPage() {
                           </div>
                           
                           <div className="space-y-4">
-                            {conversationDetail.messages.map((message, index) => (
+                            {conversationDetail.messages.map((message: Message, index: number) => (
                               <div
                                 key={index}
                                 className={`p-3 rounded-lg ${

@@ -3,7 +3,7 @@
  * This fetches users directly from account_emails table by domain, including those with zero activity
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { UserActivity } from '@/lib/userOrgMatcher';
 
 interface UseAllUsersReturn {
@@ -160,7 +160,7 @@ export function useAllUsers(): UseAllUsersReturn {
     }
   };
 
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -174,12 +174,12 @@ export function useAllUsers(): UseAllUsersReturn {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Initial load
   useEffect(() => {
     refreshData();
-  }, []);
+  }, [refreshData]);
 
   return {
     allUsers,

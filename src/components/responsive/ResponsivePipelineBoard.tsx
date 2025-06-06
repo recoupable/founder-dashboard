@@ -27,8 +27,8 @@ export function ResponsivePipelineBoard() {
   
   // Clear timer on component unmount
   useEffect(() => {
+    const timer = timerRef.current;
     return () => {
-      const timer = timerRef.current;
       if (timer) {
         clearTimeout(timer);
       }
