@@ -3,12 +3,12 @@
 import React, { useState, useEffect } from 'react';
 import 'chartjs-adapter-date-fns'; // Import the date adapter for side effects
 import { conversationService } from '@/lib/conversationService';
-import type { Message, ConversationFilters, ConversationListItem, ConversationDetail } from '@/lib/conversationService';
-import ReactMarkdown from 'react-markdown';
-import { MagnifyingGlassIcon, CogIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import type { ConversationFilters, ConversationListItem, ConversationDetail } from '@/lib/conversationService';
+
 import { createClient } from '@supabase/supabase-js';
 
 import { Line } from 'react-chartjs-2';
+
 import annotationPlugin from 'chartjs-plugin-annotation';
 import {
   Chart as ChartJS,
@@ -35,127 +35,17 @@ ChartJS.register(
   TimeSeriesScale
 );
 
-// Define types for chart annotations and chart data
-interface ChartAnnotation {
-  id: number; 
-  event_date: string; // ISO string from timestamptz or YYYY-MM-DD from DATE
-  event_description: string;
-  chart_type: string;
-  created_at: string;
-}
+import { getDateRangeForFilter, getUserTypeBadge, getProfileCompleteness } from '@/lib/utils';
+import type { ChartDataset, ApiChartDataset, MyChartData } from '@/lib/types';
 
-interface ChartDatasetDataPoint {
-  x: string; // ISO date string for the time scale
-  y: number;
-}
+import Modal from '@/components/Modal';
 
-interface ChartDataset {
-  label: string;
-  data: ChartDatasetDataPoint[];
-  borderColor: string;
-  backgroundColor: string;
-  // tension?: number; // Example: if you use line tension
-}
-
-// Interface for the dataset structure coming from the API before transformation
-interface ApiChartDataset {
-  label: string;
-  borderColor: string;
-  backgroundColor: string;
-  data: number[]; // This is the original data structure from the API
-}
-
-interface MyChartData {
-  // labels: string[]; // May not be strictly needed if time scale auto-generates from data
-  rawDates: string[]; // Still useful for mapping, or could be part of datasets
-  datasets: ChartDataset[];
-  annotations: ChartAnnotation[];
-}
-
-// Custom Switch component with proper TypeScript types
-interface SwitchProps {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  className?: string;
-  children?: React.ReactNode;
-}
-
-// Custom Tooltip component
-interface CustomTooltipProps {
-  content: string;
-  children: React.ReactNode;
-}
-
-function CustomTooltip({ content, children }: CustomTooltipProps) {
-  const [isVisible, setIsVisible] = useState(false);
-
-  return (
-    <div className="relative inline-block">
-      <div
-        onMouseEnter={() => setIsVisible(true)}
-        onMouseLeave={() => setIsVisible(false)}
-      >
-        {children}
-      </div>
-      {isVisible && (
-        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-80 z-50">
-          <div className="bg-gray-900 text-white text-sm rounded-lg p-3 shadow-lg">
-            <div className="whitespace-pre-line">{content}</div>
-            <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Switch({ checked, onChange, className, children }: SwitchProps) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked="false"
-      className={className}
-      onClick={() => onChange(!checked)}
-    >
-      {children}
-    </button>
-  );
-}
-
-// Move this helper outside the component to avoid linter dependency warnings
-function getDateRangeForFilter(filter: string): { start: string | null, end: string | null } {
-  const now = new Date();
-  let start: Date | null = null;
-  const end: Date | null = now;
-  switch (filter) {
-    case 'Last 24 Hours':
-      start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      break;
-    case 'Last 7 Days':
-      start = new Date(now);
-      start.setDate(now.getDate() - 7);
-      break;
-    case 'Last 30 Days':
-      start = new Date(now);
-      start.setDate(now.getDate() - 30);
-      break;
-    case 'Last 3 Months':
-      start = new Date(now);
-      start.setMonth(now.getMonth() - 3);
-      break;
-    case 'Last 12 Months':
-      start = new Date(now);
-      start.setFullYear(now.getFullYear() - 1);
-      break;
-    default:
-      start = null;
-  }
-  return {
-    start: start ? start.toISOString() : null,
-    end: end ? end.toISOString() : null
-  };
-}
+import ConversationList from '@/components/ConversationList';
+import ConversationDetailComponent from '@/components/ConversationDetail';
+import SearchAndFilters from '@/components/SearchAndFilters';
+import ActiveUsersChart from '@/components/ActiveUsersChart';
+import UserFilter from '@/components/UserFilter';
+import MetricsSection from '@/components/MetricsSection';
 
 export default function ConversationsPage() {
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
@@ -193,7 +83,6 @@ export default function ConversationsPage() {
     percentChange: 0,
     changeDirection: 'neutral' as 'up' | 'down' | 'neutral'
   });
-  const [activeUsersLoading, setActiveUsersLoading] = useState(false);
 
   // Active Users Chart state
   const [activeUsersChartData, setActiveUsersChartData] = useState<{
@@ -210,7 +99,6 @@ export default function ConversationsPage() {
     percentChange: 0,
     changeDirection: 'neutral' as 'up' | 'down' | 'neutral'
   });
-  const [pmfSurveyReadyLoading, setPmfSurveyReadyLoading] = useState(false);
 
   // Power Users state
   const [powerUsersData, setPowerUsersData] = useState({
@@ -219,10 +107,6 @@ export default function ConversationsPage() {
     percentChange: 0,
     changeDirection: 'neutral' as 'up' | 'down' | 'neutral'
   });
-  const [powerUsersLoading, setPowerUsersLoading] = useState(false);
-
-  // Selected metric state (simplified to 3 metrics)
-  const [selectedMetric, setSelectedMetric] = useState<'activeUsers' | 'pmfSurveyReady' | 'powerUsers'>('activeUsers');
 
   const [messagesByUser, setMessagesByUser] = useState<Record<string, number>>({});
 
@@ -311,78 +195,6 @@ export default function ConversationsPage() {
   const [annotationModalDate, setAnnotationModalDate] = useState(''); // YYYY-MM-DD
   const [annotationModalDescription, setAnnotationModalDescription] = useState('');
   const [isSavingAnnotation, setIsSavingAnnotation] = useState(false);
-
-  // Function to get user type badge based on profile and activity
-  const getUserTypeBadge = (user: { totalActivity: number; messages: number; reports: number }, profile?: {
-    company?: string;
-    job_title?: string;
-    meeting_notes?: string;
-    observations?: string;
-    pain_points?: string;
-    opportunities?: string;
-    context_notes?: string;
-    tags?: string[];
-    sentiment?: 'positive' | 'neutral' | 'negative' | 'frustrated';
-    last_contact_date?: string;
-  }) => {
-    if (!profile) {
-      // Based on activity only
-      if (user.totalActivity === 0) return { text: '🔘 Inactive', color: 'bg-gray-100 text-gray-600' };
-      if (user.reports > user.messages) return { text: '📊 Analyst', color: 'bg-purple-100 text-purple-700' };
-      if (user.messages > 20 && user.reports === 0) return { text: '💬 Communicator', color: 'bg-blue-100 text-blue-700' };
-      if (user.messages > 10 && user.reports > 5) return { text: '🚀 Power User', color: 'bg-green-100 text-green-700' };
-      if (user.messages > 0 && user.reports > 0) return { text: '⚖️ Balanced', color: 'bg-yellow-100 text-yellow-700' };
-      return { text: '🌱 New User', color: 'bg-gray-100 text-gray-600' };
-    }
-
-    // Enhanced with profile data
-    if (profile.company && profile.job_title) {
-      if (profile.job_title.toLowerCase().includes('ceo') || profile.job_title.toLowerCase().includes('founder')) {
-        return { text: '👑 Executive', color: 'bg-red-100 text-red-700' };
-      }
-      if (profile.job_title.toLowerCase().includes('manager') || profile.job_title.toLowerCase().includes('director')) {
-        return { text: '👔 Manager', color: 'bg-indigo-100 text-indigo-700' };
-      }
-      if (profile.job_title.toLowerCase().includes('engineer') || profile.job_title.toLowerCase().includes('developer')) {
-        return { text: '⚙️ Technical', color: 'bg-cyan-100 text-cyan-700' };
-      }
-      if (profile.job_title.toLowerCase().includes('design') || profile.job_title.toLowerCase().includes('creative')) {
-        return { text: '🎨 Creative', color: 'bg-pink-100 text-pink-700' };
-      }
-      if (profile.job_title.toLowerCase().includes('marketing') || profile.job_title.toLowerCase().includes('growth')) {
-        return { text: '📈 Marketing', color: 'bg-orange-100 text-orange-700' };
-      }
-    }
-
-    // Fallback to activity-based
-    return getUserTypeBadge(user);
-  };
-
-  // Function to calculate profile completeness
-  const getProfileCompleteness = (profile?: {
-    company?: string;
-    job_title?: string;
-    meeting_notes?: string;
-    observations?: string;
-    pain_points?: string;
-    opportunities?: string;
-    context_notes?: string;
-  }) => {
-    if (!profile) return 0;
-    
-    const fields = [
-      profile.company,
-      profile.job_title, 
-      profile.meeting_notes,
-      profile.observations,
-      profile.pain_points,
-      profile.opportunities,
-      profile.context_notes
-    ];
-    
-    const filledFields = fields.filter((field) => field && field.trim().length > 0).length;
-    return Math.round((filledFields / fields.length) * 100);
-  };
 
   // Reset page when filters change
   useEffect(() => {
@@ -736,7 +548,6 @@ export default function ConversationsPage() {
   // Fetch active users data when timeFilter or excludeTestEmails changes
   useEffect(() => {
     const fetchActiveUsers = async () => {
-      setActiveUsersLoading(true);
       try {
         const params = new URLSearchParams({
           timeFilter,
@@ -753,8 +564,6 @@ export default function ConversationsPage() {
         }
       } catch (error) {
         console.error('Error fetching active users:', error);
-      } finally {
-        setActiveUsersLoading(false);
       }
     };
     
@@ -796,7 +605,6 @@ export default function ConversationsPage() {
   // Fetch PMF Survey Ready data when timeFilter or excludeTestEmails changes
   useEffect(() => {
     const fetchPmfSurveyReady = async () => {
-      setPmfSurveyReadyLoading(true);
       try {
         const params = new URLSearchParams({
           timeFilter,
@@ -813,8 +621,6 @@ export default function ConversationsPage() {
         }
       } catch (error) {
         console.error('Error fetching PMF Survey Ready:', error);
-      } finally {
-        setPmfSurveyReadyLoading(false);
       }
     };
     
@@ -824,7 +630,6 @@ export default function ConversationsPage() {
   // Fetch power users data when timeFilter or excludeTestEmails changes
   useEffect(() => {
     const fetchPowerUsers = async () => {
-      setPowerUsersLoading(true);
       try {
         const params = new URLSearchParams({
           timeFilter,
@@ -841,8 +646,6 @@ export default function ConversationsPage() {
         }
       } catch (error) {
         console.error('Error fetching power users:', error);
-      } finally {
-        setPowerUsersLoading(false);
       }
     };
     
@@ -1244,211 +1047,28 @@ export default function ConversationsPage() {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
-            {/* Page Header with Master Time Filter */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4 sm:mb-0">User Conversations</h1>
-              
-              {/* Master Time Filter */}
-              <div className="flex items-center gap-4">
-                <label htmlFor="master-time-filter" className="font-medium text-sm text-gray-700">
-                  Time Period:
-                </label>
-                <select
-                  id="master-time-filter"
-                  value={timeFilter}
-                  onChange={e => setTimeFilter(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="Last 24 Hours">Last 24 Hours</option>
-                  <option value="Last 7 Days">Last 7 Days</option>
-                  <option value="Last 30 Days">Last 30 Days</option>
-                  <option value="Last 3 Months">Last 3 Months</option>
-                  <option value="Last 12 Months">Last 12 Months</option>
-                </select>
-              </div>
-            </div>
+            <SearchAndFilters
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              excludeTestEmails={excludeTestEmails}
+              onToggleTestEmails={setExcludeTestEmails}
+              timeFilter={timeFilter}
+              onTimeFilterChange={setTimeFilter}
+              onManageTestEmails={() => setShowTestEmailPopup(true)}
+            />
 
-            {/* Analytics Metrics Cards (Vercel-style) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              {/* Active Users Card */}
-              <CustomTooltip content="Active Users are users who have sent at least one message or created at least one segment report during the selected time period. This metric helps track overall product engagement and user activation.">
-                <button
-                  type="button"
-                  onClick={() => setSelectedMetric('activeUsers')}
-                  className={`bg-white rounded-2xl shadow-md p-6 text-left transition-all w-full ${
-                    selectedMetric === 'activeUsers' ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-lg'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500">Active Users</h3>
-                    </div>
-                    <div className="text-blue-600">
-                      <ChatBubbleLeftRightIcon className="h-5 w-5" />
-                    </div>
-                  </div>
-                  
-                  {activeUsersLoading ? (
-                    <div className="animate-pulse">
-                      <div className="h-8 w-16 bg-gray-200 rounded mb-2"></div>
-                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="text-3xl font-bold text-gray-900 mb-1">{activeUsersData.activeUsers}</div>
-                      <div className="flex items-center text-sm">
-                        {activeUsersData.changeDirection === 'up' && (
-                          <span className="text-green-600 font-medium">▲ {Math.abs(activeUsersData.percentChange)}%</span>
-                        )}
-                        {activeUsersData.changeDirection === 'down' && (
-                          <span className="text-red-600 font-medium">▼ {Math.abs(activeUsersData.percentChange)}%</span>
-                        )}
-                        {activeUsersData.changeDirection === 'neutral' && (
-                          <span className="text-gray-500 font-medium">— 0%</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </button>
-              </CustomTooltip>
+            {/* Analytics Metrics Cards */}
+            <MetricsSection
+              activeUsersData={activeUsersData}
+              powerUsersData={powerUsersData}
+              pmfSurveyReadyData={pmfSurveyReadyData}
+            />
 
-              {/* Power Users Card */}
-              <CustomTooltip content="Power Users are your most engaged users with 10+ total actions (messages + reports) in the selected period. These users demonstrate high product engagement through consistent usage.">
-                <button
-                  type="button"
-                  onClick={() => setSelectedMetric('powerUsers')}
-                  className={`bg-white rounded-2xl shadow-md p-6 text-left transition-all w-full ${
-                    selectedMetric === 'powerUsers' ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-lg'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500">Power Users</h3>
-                    </div>
-                    <div className="text-blue-600">
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                    </div>
-                  </div>
-                  
-                  {powerUsersLoading ? (
-                    <div className="animate-pulse">
-                      <div className="h-8 w-16 bg-gray-200 rounded mb-2"></div>
-                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="text-3xl font-bold text-gray-900 mb-1">{powerUsersData.powerUsers}</div>
-                      <div className="flex items-center text-sm">
-                        {powerUsersData.changeDirection === 'up' && (
-                          <span className="text-green-600 font-medium">▲ {Math.abs(powerUsersData.percentChange)}%</span>
-                        )}
-                        {powerUsersData.changeDirection === 'down' && (
-                          <span className="text-red-600 font-medium">▼ {Math.abs(powerUsersData.percentChange)}%</span>
-                        )}
-                        {powerUsersData.changeDirection === 'neutral' && (
-                          <span className="text-gray-500 font-medium">— 0%</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </button>
-              </CustomTooltip>
-
-              {/* PMF Survey Ready Card */}
-              <CustomTooltip content="PMF Survey Ready users meet Sean Ellis criteria for product-market fit surveys: they have used your product at least twice (2+ conversation sessions) AND have been active in the last 14 days. When this reaches 30-50 users, you should send PMF surveys.">
-                <button
-                  type="button"
-                  onClick={() => setSelectedMetric('pmfSurveyReady')}
-                  className={`bg-white rounded-2xl shadow-md p-6 text-left transition-all w-full ${
-                    selectedMetric === 'pmfSurveyReady' ? 'ring-2 ring-blue-500 border-blue-500' : 'hover:shadow-lg'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500">PMF Survey Ready</h3>
-                    </div>
-                    <div className="text-blue-600">
-                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                  </div>
-                  
-                  {pmfSurveyReadyLoading ? (
-                    <div className="animate-pulse">
-                      <div className="h-8 w-16 bg-gray-200 rounded mb-2"></div>
-                      <div className="h-4 w-24 bg-gray-200 rounded"></div>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="text-3xl font-bold text-gray-900 mb-1">{pmfSurveyReadyData.pmfSurveyReady}</div>
-                      <div className="flex items-center text-sm">
-                        {pmfSurveyReadyData.changeDirection === 'up' && (
-                          <span className="text-green-600 font-medium">▲ {Math.abs(pmfSurveyReadyData.percentChange)}%</span>
-                        )}
-                        {pmfSurveyReadyData.changeDirection === 'down' && (
-                          <span className="text-red-600 font-medium">▼ {Math.abs(pmfSurveyReadyData.percentChange)}%</span>
-                        )}
-                        {pmfSurveyReadyData.changeDirection === 'neutral' && (
-                          <span className="text-gray-500 font-medium">— 0%</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </button>
-              </CustomTooltip>
-            </div>
-
-            {/* Selected Metric Chart */}
-            <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-              <h2 className="text-xl font-semibold mb-4">
-                {selectedMetric === 'activeUsers' && 'Active Users Trend'}
-                {selectedMetric === 'powerUsers' && 'Power Users Trend'}
-                {selectedMetric === 'pmfSurveyReady' && 'PMF Survey Ready Trend'}
-              </h2>
-              
-              {(selectedMetric === 'activeUsers' && activeUsersChartLoading) ? (
-                <div className="text-center text-gray-500 py-8">Loading chart...</div>
-              ) : (selectedMetric === 'activeUsers' && activeUsersChartError) ? (
-                <div className="text-center text-red-500 py-8">
-                  {activeUsersChartError}
-                </div>
-              ) : (selectedMetric === 'activeUsers' && activeUsersChartData) ? (
-                <div className="h-64">
-                  <Line
-                    data={{
-                      labels: activeUsersChartData.labels,
-                      datasets: [{
-                        label: 'Active Users',
-                        data: activeUsersChartData.data,
-                        borderColor: 'rgb(59, 130, 246)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        tension: 0.1
-                      }]
-                    }}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        legend: { display: false },
-                        title: { display: false }
-                      },
-                      scales: {
-                        y: { beginAtZero: true }
-                      }
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 py-8">
-                  {selectedMetric !== 'activeUsers' 
-                    ? `Chart data for ${selectedMetric === 'powerUsers' ? 'Power Users' : 'PMF Survey Ready'} is not yet available. Currently only Active Users chart is implemented.` 
-                    : 'No chart data available'}
-                </div>
-              )}
-            </div>
+            <ActiveUsersChart
+              chartData={activeUsersChartData}
+              loading={activeUsersChartLoading}
+              error={activeUsersChartError}
+            />
 
             {/* User Leaderboard (Time Filtered) */}
             <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
@@ -2184,344 +1804,144 @@ export default function ConversationsPage() {
             <div className="bg-white rounded-2xl shadow-md p-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
                 <h2 className="text-xl font-semibold">Conversation Management</h2>
-                
-                {/* Search and Filters */}
-                <div className="flex flex-col sm:flex-row gap-3">
-                  {/* Search */}
-                  <div className="relative">
-                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search conversations..."
-                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
-                  
-                  {/* Stats Pills */}
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                      {totalCount.toLocaleString()} conversations
-                    </span>
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                      {totalUniqueUsers.toLocaleString()} users
-                    </span>
-                  </div>
-                  
-                  {/* Test Email Toggle */}
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={excludeTestEmails}
-                      onChange={setExcludeTestEmails}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                        excludeTestEmails ? 'bg-blue-600' : 'bg-gray-200'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          excludeTestEmails ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </Switch>
-                    <span className="text-sm text-gray-700">Exclude test emails</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowTestEmailPopup(true)}
-                      className="p-1 text-gray-400 hover:text-gray-600"
-                      title="Manage test emails"
-                    >
-                      <CogIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
               </div>
 
-              {/* User Filter Status */}
-              {selectedUserFilter && (
-                <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                    </svg>
-                    <span className="text-sm text-blue-800">
-                      Filtering conversations by: <strong>{selectedUserFilter}</strong>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedUserFilter(null);
-                      setSearchQuery(''); // Also clear search query
-                    }}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                  >
-                    Clear Filter
-                  </button>
-                </div>
-              )}
+              <UserFilter
+                selectedUserFilter={selectedUserFilter}
+                onClearFilter={() => {
+                  setSelectedUserFilter(null);
+                  setSearchQuery(''); // Also clear search query
+                }}
+              />
 
-              {/* Loading State */}
-              {loading && (
-                <div className="space-y-4">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="animate-pulse">
-                      <div className="h-4 w-1/4 bg-gray-200 rounded mb-2"></div>
-                      <div className="h-6 w-3/4 bg-gray-200 rounded mb-2"></div>
-                      <div className="h-4 w-1/2 bg-gray-200 rounded"></div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ConversationList
+                  conversations={conversations}
+                  loading={loading}
+                  error={error}
+                  selectedConversation={selectedConversation}
+                  onConversationSelect={setSelectedConversation}
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  totalCount={totalCount}
+                  totalUniqueUsers={totalUniqueUsers}
+                />
 
-              {/* Error State */}
-              {error && (
-                <div className="text-red-600 bg-red-50 border border-red-200 rounded-lg p-4">
-                  {error}
-                </div>
-              )}
-
-              {/* Conversations List */}
-              {!loading && !error && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Conversations List */}
-                  <div className="space-y-4">
-                    <h3 className="font-medium text-gray-900">Recent Conversations</h3>
-                    {conversations.length === 0 ? (
-                      <div className="text-center text-gray-500 py-8">
-                        No conversations found matching your criteria.
-                      </div>
-                    ) : (
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {conversations.map((conversation) => (
-                          <div
-                            key={conversation.room_id}
-                            className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                              selectedConversation === conversation.room_id
-                                ? 'border-blue-500 bg-blue-50'
-                                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                            }`}
-                            onClick={() => setSelectedConversation(conversation.room_id)}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="min-w-0 flex-1">
-                                <h4 className="font-medium text-gray-900 truncate">
-                                  {conversation.topic || 'Untitled Conversation'}
-                                </h4>
-                                <p className="text-sm text-gray-600 truncate">
-                                  {conversation.account_email}
-                                </p>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {new Date(conversation.last_message_date).toLocaleDateString()} at{' '}
-                                  {new Date(conversation.last_message_date).toLocaleTimeString()}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-between pt-4">
-                        <button
-                          type="button"
-                          onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                          disabled={currentPage === 1}
-                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
-                        >
-                          Previous
-                        </button>
-                        
-                        <span className="text-sm text-gray-700">
-                          Page {currentPage} of {totalPages}
-                        </span>
-                        
-                        <button
-                          type="button"
-                          onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                          disabled={currentPage === totalPages}
-                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Conversation Detail */}
-                  <div>
-                    <h3 className="font-medium text-gray-900 mb-4">Conversation Details</h3>
-                    {selectedConversation ? (
-                      conversationDetail ? (
-                        <div className="border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto">
-                          <div className="mb-4">
-                            <h4 className="font-medium text-gray-900">{conversationDetail.topic || 'Untitled'}</h4>
-                            <p className="text-sm text-gray-600">{conversationDetail.account_email}</p>
-                            <p className="text-xs text-gray-500">
-                              Started: {conversationDetail.messages.length > 0 ? 
-                                new Date(conversationDetail.messages[0].created_at).toLocaleDateString() : 
-                                'Unknown'}
-                            </p>
-                          </div>
-                          
-                          <div className="space-y-4">
-                            {conversationDetail.messages.map((message: Message, index: number) => (
-                              <div
-                                key={index}
-                                className={`p-3 rounded-lg ${
-                                  message.role === 'user'
-                                    ? 'bg-blue-50 border-l-4 border-blue-400'
-                                    : 'bg-gray-50 border-l-4 border-gray-400'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-sm font-medium">
-                                    {message.role === 'user' ? 'User' : 'Assistant'}
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    {new Date(message.created_at).toLocaleTimeString()}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-gray-700">
-                                  {message.role === 'user' ? (
-                                    <p className="whitespace-pre-wrap">{message.content}</p>
-                                  ) : (
-                                    <div className="prose prose-sm max-w-none">
-                                      <ReactMarkdown>{message.content}</ReactMarkdown>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="border border-gray-200 rounded-lg p-4 text-center text-gray-500">
-                          Loading conversation details...
-                        </div>
-                      )
-                    ) : (
-                      <div className="border border-gray-200 rounded-lg p-4 text-center text-gray-500">
-                        Select a conversation to view details
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+                <ConversationDetailComponent
+                  conversationDetail={conversationDetail}
+                  selectedConversation={selectedConversation}
+                  loading={!selectedConversation ? false : !conversationDetail}
+                />
+              </div>
             </div>
           </div>
         )}
       </div>
       
       {/* Test Email Management Popup */}
-      {showTestEmailPopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[80vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">Manage Test Emails</h2>
+      <Modal isOpen={showTestEmailPopup} onClose={() => setShowTestEmailPopup(false)}>
+        <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[80vh] overflow-y-auto">
+          <h2 className="text-xl font-bold mb-4">Manage Test Emails</h2>
+          
+          <div className="mb-4">
+            <p className="text-sm text-gray-600 mb-2">
+              Emails listed here will be excluded from metrics when &quot;Exclude test emails&quot; is enabled.
+            </p>
             
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">
-                Emails listed here will be excluded from metrics when &quot;Exclude test emails&quot; is enabled.
-              </p>
-              
-              <div className="flex gap-2 mb-4">
-                <input
-                  type="email"
-                  placeholder="Add test email"
-                  className="flex-1 p-2 border rounded"
-                  value={newTestEmail}
-                  onChange={(e) => setNewTestEmail(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      addTestEmail();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={addTestEmail}
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  disabled={!newTestEmail || isLoadingTestEmails}
-                >
-                  Add
-                </button>
-              </div>
-              
-              {testEmailError && (
-                <div className="text-red-500 text-sm mb-2">{testEmailError}</div>
-              )}
-              
-              <div className="space-y-2">
-                {testEmails.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No test emails configured</p>
-                ) : (
-                  testEmails.map((email) => (
-                    <div key={email} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                      <span className="text-sm">{email}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeTestEmail(email)}
-                        className="text-red-500 hover:text-red-700"
-                        disabled={isLoadingTestEmails}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-            
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="flex gap-2 mb-4">
+              <input
+                type="email"
+                placeholder="Add test email"
+                className="flex-1 p-2 border rounded"
+                value={newTestEmail}
+                onChange={(e) => setNewTestEmail(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    addTestEmail();
+                  }
+                }}
+              />
               <button
                 type="button"
-                onClick={() => setShowTestEmailPopup(false)}
-                className="px-4 py-2 border rounded hover:bg-gray-50"
+                onClick={addTestEmail}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                disabled={!newTestEmail || isLoadingTestEmails}
               >
-                Close
+                Add
               </button>
             </div>
+            
+            {testEmailError && (
+              <div className="text-red-500 text-sm mb-2">{testEmailError}</div>
+            )}
+            
+            <div className="space-y-2">
+              {testEmails.length === 0 ? (
+                <p className="text-gray-500 text-sm">No test emails configured</p>
+              ) : (
+                testEmails.map((email) => (
+                  <div key={email} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <span className="text-sm">{email}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeTestEmail(email)}
+                      className="text-red-500 hover:text-red-700"
+                      disabled={isLoadingTestEmails}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-2 mt-6">
+            <button
+              type="button"
+              onClick={() => setShowTestEmailPopup(false)}
+              className="px-4 py-2 border rounded hover:bg-gray-50"
+            >
+              Close
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* Annotation Modal */}
-      {showAnnotationModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Add Annotation for {annotationModalDate}</h3>
-            <textarea
-              className="w-full p-2 border rounded mb-4 h-24"
-              placeholder="Event description..."
-              value={annotationModalDescription}
-              onChange={(e) => setAnnotationModalDescription(e.target.value)}
-            />
-            {saveAnnotationError && (
-              <p className="text-red-500 text-sm mb-2">{saveAnnotationError}</p>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowAnnotationModal(false)}
-                className="px-4 py-2 border rounded hover:bg-gray-100"
-                disabled={isSavingAnnotation}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveAnnotation}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-blue-300"
-                disabled={isSavingAnnotation || !annotationModalDescription}
-              >
-                {isSavingAnnotation ? 'Saving...' : 'Save Annotation'}
-              </button>
-            </div>
+      <Modal isOpen={showAnnotationModal} onClose={() => setShowAnnotationModal(false)}>
+        <div className="bg-white rounded-lg p-6 max-w-md w-full">
+          <h3 className="text-lg font-semibold mb-4">Add Annotation for {annotationModalDate}</h3>
+          <textarea
+            className="w-full p-2 border rounded mb-4 h-24"
+            placeholder="Event description..."
+            value={annotationModalDescription}
+            onChange={(e) => setAnnotationModalDescription(e.target.value)}
+          />
+          {saveAnnotationError && (
+            <p className="text-red-500 text-sm mb-2">{saveAnnotationError}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAnnotationModal(false)}
+              className="px-4 py-2 border rounded hover:bg-gray-100"
+              disabled={isSavingAnnotation}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveAnnotation}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-blue-300"
+              disabled={isSavingAnnotation || !annotationModalDescription}
+            >
+              {isSavingAnnotation ? 'Saving...' : 'Save Annotation'}
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </main>
   );
 } 
