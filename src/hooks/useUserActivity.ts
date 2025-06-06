@@ -3,7 +3,7 @@
  * Leverages existing leaderboard APIs to get user messages and reports
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { UserActivity } from '@/lib/userOrgMatcher';
 
 interface UseUserActivityOptions {
@@ -160,7 +160,7 @@ export function useUserActivity(options: UseUserActivityOptions = {}): UseUserAc
   };
 
   // Main data fetching function
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -174,12 +174,12 @@ export function useUserActivity(options: UseUserActivityOptions = {}): UseUserAc
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchUserActivity]);
 
   // Initial load and dependencies
   useEffect(() => {
     refreshData();
-  }, [timeFilter, excludeTestEmails]);
+  }, [timeFilter, excludeTestEmails, refreshData]);
 
   // Auto-refresh interval
   useEffect(() => {
@@ -187,7 +187,7 @@ export function useUserActivity(options: UseUserActivityOptions = {}): UseUserAc
       const interval = setInterval(refreshData, refreshInterval);
       return () => clearInterval(interval);
     }
-  }, [refreshInterval, timeFilter, excludeTestEmails]);
+  }, [refreshInterval, refreshData]);
 
   return {
     users,

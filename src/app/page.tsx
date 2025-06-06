@@ -7,6 +7,7 @@ import { ResponsivePipelineBoard } from '@/components/responsive/ResponsivePipel
 import { RevenueDisplayProvider } from '@/context/RevenueDisplayContext'
 import { RevenueToggle } from '@/components/dashboard/RevenueToggle'
 
+
 // Force dynamic rendering to ensure fresh data on each request
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,8 @@ export default async function Dashboard() {
             <ResponsivePipelineBoard />
           </PipelineProvider>
         </div>
+
+
       </div>
     </main>
   )

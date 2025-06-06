@@ -102,7 +102,9 @@ class ConversationService {
     try {
       if (this.useMockData) {
         console.log('Using mock data for conversation list');
-        window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'mock' } }));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'mock' } }));
+        }
         const conversations = await this.getMockConversationList(filters);
         return {
           conversations,
@@ -115,7 +117,9 @@ class ConversationService {
       }
       
       console.log('Fetching conversations from API with filters:', filters);
-      window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'api' } }));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'api' } }));
+      }
       
       // Build API URL with query parameters
       const searchParams = new URLSearchParams();
@@ -141,9 +145,10 @@ class ConversationService {
       const apiUrl = `/api/conversations?${searchParams.toString()}`;
       console.log('API URL:', apiUrl);
       
-      // Make request to API
-      console.log('Sending fetch request to API...');
-      const response = await fetch(apiUrl);
+      // Make request to API - use absolute URL for server-side
+      const fullUrl = typeof window !== 'undefined' ? apiUrl : `http://localhost:3000${apiUrl}`;
+      console.log('Sending fetch request to API...', fullUrl);
+      const response = await fetch(fullUrl);
       console.log('API response status:', response.status);
       
       if (!response.ok) {
@@ -188,9 +193,13 @@ class ConversationService {
       // Check if we got fallback data
       if (data.conversations?.length === 1 && data.conversations[0].room_id?.startsWith('mock-room-')) {
         console.warn('API returned fallback/mock data:', data.conversations[0].room_id);
-        window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'fallback', reason: data.conversations[0].room_id } }));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'fallback', reason: data.conversations[0].room_id } }));
+        }
       } else {
-        window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'supabase' } }));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('data-source-update', { detail: { source: 'supabase' } }));
+        }
       }
       
       return data;
@@ -200,12 +209,14 @@ class ConversationService {
       // Fall back to mock data if there's an error
       if (!this.useMockData) {
         console.warn('Falling back to mock data due to error');
-        window.dispatchEvent(new CustomEvent('data-source-update', { 
-          detail: { 
-            source: 'mock-fallback', 
-            error: error instanceof Error ? error.message : String(error) 
-          } 
-        }));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('data-source-update', { 
+            detail: { 
+              source: 'mock-fallback', 
+              error: error instanceof Error ? error.message : String(error) 
+            } 
+          }));
+        }
         const conversations = await this.getMockConversationList(filters);
         return {
           conversations,
@@ -237,8 +248,10 @@ class ConversationService {
       
       console.log('Fetching conversation detail from API for room:', roomId);
       
-      // Make request to API
-      const response = await fetch(`/api/conversations/${roomId}`);
+      // Make request to API - use absolute URL for server-side
+      const apiUrl = `/api/conversations/${roomId}`;
+      const fullUrl = typeof window !== 'undefined' ? apiUrl : `http://localhost:3000${apiUrl}`;
+      const response = await fetch(fullUrl);
       
       if (!response.ok) {
         // Handle 404 specifically - this is expected for blocked test conversations
