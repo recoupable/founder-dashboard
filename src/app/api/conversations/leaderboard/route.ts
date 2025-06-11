@@ -21,31 +21,52 @@ export async function GET(request: Request) {
     .gte('updated_at', start)
     .lte('updated_at', end);
 
-  // Debug log the fetched rooms data
-  console.log('Rooms data:', data);
-
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Fetch emails for all account_ids
+  // Fetch emails and wallets for all account_ids
   const accountIds = Array.from(new Set((data as { account_id: string }[]).map(row => row.account_id)));
-  const { data: emailsData, error: emailsError } = await supabase
-    .from('account_emails')
-    .select('account_id, email')
-    .in('account_id', accountIds);
+  
+  // Get both emails and wallets
+  const [emailsResponse, walletsResponse] = await Promise.all([
+    supabase
+      .from('account_emails')
+      .select('account_id, email')
+      .in('account_id', accountIds),
+    supabase
+      .from('account_wallets')
+      .select('account_id, wallet')
+      .in('account_id', accountIds)
+  ]);
 
-  if (emailsError) {
-    return NextResponse.json({ error: emailsError.message }, { status: 500 });
+  if (emailsResponse.error) {
+    return NextResponse.json({ error: emailsResponse.error.message }, { status: 500 });
   }
+
+  const emailsData = emailsResponse.data || [];
+  const walletsData = walletsResponse.data || [];
+
+  // Build account to identifier map (prefer email, fallback to wallet)
+  const accountToIdentifier = new Map<string, string>();
+  emailsData.forEach((row: { account_id: string, email: string }) => {
+    if (row.email) {
+      accountToIdentifier.set(row.account_id, row.email);
+    }
+  });
+  walletsData.forEach((row: { account_id: string, wallet: string }) => {
+    if (row.wallet && !accountToIdentifier.has(row.account_id)) {
+      accountToIdentifier.set(row.account_id, row.wallet);
+    }
+  });
 
   // Count segment reports by user
   const counts: Record<string, number> = {};
   for (const row of data as { account_id: string; topic: string }[]) {
     if (row?.topic?.toLowerCase?.().startsWith('segment:')) {
-      const email = emailsData?.find?.((e: { account_id: string; email: string }) => e.account_id === row.account_id)?.email;
-      if (email) {
-        counts[email] = (counts[email] || 0) + 1;
+      const identifier = accountToIdentifier.get(row.account_id);
+      if (identifier) {
+        counts[identifier] = (counts[identifier] || 0) + 1;
       }
     }
   }
