@@ -9,7 +9,15 @@ export async function GET(request: Request) {
     
     console.log('Active Users Chart API: Generating chart data for period:', timeFilter);
     
-    // Calculate date ranges and granularity based on time filter
+    // Debug timezone information
+    console.log('Active Users Chart API: Timezone debug info:', {
+      serverTime: new Date().toString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      utcTime: new Date().toISOString(),
+      localTime: new Date().toLocaleString()
+    });
+    
+    // Calculate date ranges and granularity based on time filter (FORCE UTC for consistency)
     const now = new Date();
     const intervals: { start: Date, end: Date, label: string }[] = [];
     
@@ -28,13 +36,12 @@ export async function GET(request: Request) {
         break;
         
       case 'Last 7 Days':
-        // Daily intervals for last 7 days
+        // Daily intervals for last 7 days - USE UTC CONSISTENT LOGIC
         for (let i = 6; i >= 0; i--) {
-          const start = new Date(now);
-          start.setDate(now.getDate() - i);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setHours(23, 59, 59, 999);
+          const endTime = now.getTime() - i * 24 * 60 * 60 * 1000;
+          const startTime = endTime - 24 * 60 * 60 * 1000;
+          const start = new Date(startTime);
+          const end = new Date(endTime);
           intervals.push({
             start,
             end,
@@ -44,13 +51,12 @@ export async function GET(request: Request) {
         break;
         
       case 'Last 30 Days':
-        // Daily intervals for last 30 days
+        // Daily intervals for last 30 days - USE UTC CONSISTENT LOGIC
         for (let i = 29; i >= 0; i--) {
-          const start = new Date(now);
-          start.setDate(now.getDate() - i);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setHours(23, 59, 59, 999);
+          const endTime = now.getTime() - i * 24 * 60 * 60 * 1000;
+          const startTime = endTime - 24 * 60 * 60 * 1000;
+          const start = new Date(startTime);
+          const end = new Date(endTime);
           intervals.push({
             start,
             end,
@@ -60,14 +66,12 @@ export async function GET(request: Request) {
         break;
         
       case 'Last 3 Months':
-        // Weekly intervals for last 3 months
+        // Weekly intervals for last 3 months - USE UTC CONSISTENT LOGIC
         for (let i = 12; i >= 0; i--) {
-          const end = new Date(now);
-          end.setDate(now.getDate() - i * 7);
-          const start = new Date(end);
-          start.setDate(end.getDate() - 6);
-          start.setHours(0, 0, 0, 0);
-          end.setHours(23, 59, 59, 999);
+          const endTime = now.getTime() - i * 7 * 24 * 60 * 60 * 1000;
+          const startTime = endTime - 7 * 24 * 60 * 60 * 1000;
+          const start = new Date(startTime);
+          const end = new Date(endTime);
           intervals.push({
             start,
             end,
@@ -77,10 +81,12 @@ export async function GET(request: Request) {
         break;
         
       case 'Last 12 Months':
-        // Monthly intervals for last 12 months
+        // Monthly intervals for last 12 months - USE UTC CONSISTENT LOGIC
         for (let i = 11; i >= 0; i--) {
-          const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+          const endTime = now.getTime() - i * 30 * 24 * 60 * 60 * 1000; // Approximate 30 days per month
+          const startTime = endTime - 30 * 24 * 60 * 60 * 1000;
+          const start = new Date(startTime);
+          const end = new Date(endTime);
           intervals.push({
             start,
             end,
@@ -90,13 +96,12 @@ export async function GET(request: Request) {
         break;
         
       default:
-        // Default to last 30 days
+        // Default to last 30 days - USE UTC CONSISTENT LOGIC
         for (let i = 29; i >= 0; i--) {
-          const start = new Date(now);
-          start.setDate(now.getDate() - i);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setHours(23, 59, 59, 999);
+          const endTime = now.getTime() - i * 24 * 60 * 60 * 1000;
+          const startTime = endTime - 24 * 60 * 60 * 1000;
+          const start = new Date(startTime);
+          const end = new Date(endTime);
           intervals.push({
             start,
             end,
@@ -104,6 +109,20 @@ export async function GET(request: Request) {
           });
         }
     }
+
+    console.log('Active Users Chart API: Generated intervals (UTC):', {
+      count: intervals.length,
+      firstInterval: intervals[0] ? {
+        start: intervals[0].start.toISOString(),
+        end: intervals[0].end.toISOString(),
+        label: intervals[0].label
+      } : null,
+      lastInterval: intervals[intervals.length - 1] ? {
+        start: intervals[intervals.length - 1].start.toISOString(),
+        end: intervals[intervals.length - 1].end.toISOString(),
+        label: intervals[intervals.length - 1].label
+      } : null
+    });
 
     // Get test filtering data if excluding test accounts
     let allowedAccountIds: string[] = [];

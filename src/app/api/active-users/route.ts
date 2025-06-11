@@ -10,35 +10,48 @@ export async function GET(request: Request) {
     console.log('Active Users API: Calculating active users for period:', timeFilter);
     console.log('Active Users API: Request timestamp:', new Date().toISOString());
     
-    // Calculate date ranges based on time filter (always use UTC for consistency)
+    // Debug timezone information
+    console.log('Active Users API: Timezone debug info:', {
+      serverTime: new Date().toString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      utcTime: new Date().toISOString(),
+      localTime: new Date().toLocaleString()
+    });
+    
+    // Calculate date ranges based on time filter (FORCE UTC for consistency)
     const now = new Date();
     const getDateRange = (filter: string) => {
+      // Force UTC by using getTime() and creating new dates from timestamps
+      const nowUTC = new Date(now.getTime());
+      
       switch (filter) {
         case 'Last 24 Hours':
-          const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-          return { start: last24Hours, end: now };
+          const last24Hours = new Date(nowUTC.getTime() - 24 * 60 * 60 * 1000);
+          return { start: last24Hours, end: nowUTC };
         case 'Last 7 Days':
-          const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          return { start: last7Days, end: now };
+          const last7Days = new Date(nowUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
+          return { start: last7Days, end: nowUTC };
         case 'Last 30 Days':
-          const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          return { start: last30Days, end: now };
+          const last30Days = new Date(nowUTC.getTime() - 30 * 24 * 60 * 60 * 1000);
+          return { start: last30Days, end: nowUTC };
         case 'Last 3 Months':
-          const last3Months = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-          return { start: last3Months, end: now };
+          const last3Months = new Date(nowUTC.getTime() - 90 * 24 * 60 * 60 * 1000);
+          return { start: last3Months, end: nowUTC };
         case 'Last 12 Months':
-          const last12Months = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-          return { start: last12Months, end: now };
+          const last12Months = new Date(nowUTC.getTime() - 365 * 24 * 60 * 60 * 1000);
+          return { start: last12Months, end: nowUTC };
         default: // All Time or any unrecognized filter
-          return { start: null, end: now };
+          return { start: null, end: nowUTC };
       }
     };
 
     // Get current period and comparison periods
     const currentPeriod = getDateRange(timeFilter);
-    console.log('Active Users API: Current period:', {
+    console.log('Active Users API: Current period (UTC):', {
       start: currentPeriod.start?.toISOString(),
-      end: currentPeriod.end.toISOString()
+      end: currentPeriod.end.toISOString(),
+      startLocal: currentPeriod.start?.toLocaleString(),
+      endLocal: currentPeriod.end.toLocaleString()
     });
     
     // Calculate comparison periods
