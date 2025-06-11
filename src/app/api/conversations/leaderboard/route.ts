@@ -119,7 +119,7 @@ export async function GET(request: Request) {
     
     // Determine user status
     const isNew = previousPeriodActions === 0 && currentPeriodActions > 0;
-    const isReactivated = previousPeriodActions === 0 && currentPeriodActions > 0; // Could be refined further
+    const isReactivated = false; // For now, just use isNew. Reactivated would need historical data
     
     return {
       email,
