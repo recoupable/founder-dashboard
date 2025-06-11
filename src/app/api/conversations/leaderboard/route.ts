@@ -18,7 +18,8 @@ export async function GET(request: Request) {
   const startDate = new Date(start);
   const endDate = new Date(end);
   const periodDuration = endDate.getTime() - startDate.getTime();
-  const previousStart = new Date(startDate.getTime() - periodDuration).toISOString();
+  // Add a small buffer (1 day) to avoid edge cases where activity falls just outside the window
+  const previousStart = new Date(startDate.getTime() - periodDuration - (24 * 60 * 60 * 1000)).toISOString();
   const previousEnd = start;
 
   // Get both segment reports AND message counts for comprehensive activity data
@@ -44,8 +45,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: previousReportsData.error.message }, { status: 500 });
   }
 
-  // 2. Get message counts for both periods using the working message-counts logic
-  const [currentMessagesData, previousMessagesData] = await Promise.all([
+  // 2. Get message counts for current, previous, and historical periods
+  // Historical period = everything before the previous period (to distinguish New vs Reactivated)
+  const historicalEnd = previousStart;
+  const historicalStart = '2020-01-01T00:00:00.000Z'; // Far back enough to capture all historical activity
+  
+  const [currentMessagesData, previousMessagesData, historicalMessagesData] = await Promise.all([
     supabase.rpc('get_message_counts_by_user', {
       start_date: start,
       end_date: end
@@ -53,14 +58,23 @@ export async function GET(request: Request) {
     supabase.rpc('get_message_counts_by_user', {
       start_date: previousStart,
       end_date: previousEnd
+    }),
+    supabase.rpc('get_message_counts_by_user', {
+      start_date: historicalStart,
+      end_date: historicalEnd
     })
   ]);
+
+
 
   if (currentMessagesData.error) {
     return NextResponse.json({ error: currentMessagesData.error.message }, { status: 500 });
   }
   if (previousMessagesData.error) {
     return NextResponse.json({ error: previousMessagesData.error.message }, { status: 500 });
+  }
+  if (historicalMessagesData.error) {
+    return NextResponse.json({ error: historicalMessagesData.error.message }, { status: 500 });
   }
 
   // 3. Get account identifiers (emails/wallets) for all users
@@ -124,14 +138,12 @@ export async function GET(request: Request) {
   }
 
   // 5. Count messages by user for both periods
+  // Note: RPC function returns account_email directly, not account_id
   const currentMessagesCounts: Record<string, number> = {};
   if (currentMessagesData.data && Array.isArray(currentMessagesData.data)) {
     for (const row of currentMessagesData.data) {
-      if (row && row.account_id) {
-        const identifier = accountToIdentifier.get(row.account_id);
-        if (identifier) {
-          currentMessagesCounts[identifier] = row.message_count || 0;
-        }
+      if (row && row.account_email) {
+        currentMessagesCounts[row.account_email] = row.message_count || 0;
       }
     }
   }
@@ -139,11 +151,17 @@ export async function GET(request: Request) {
   const previousMessagesCounts: Record<string, number> = {};
   if (previousMessagesData.data && Array.isArray(previousMessagesData.data)) {
     for (const row of previousMessagesData.data) {
-      if (row && row.account_id) {
-        const identifier = accountToIdentifier.get(row.account_id);
-        if (identifier) {
-          previousMessagesCounts[identifier] = row.message_count || 0;
-        }
+      if (row && row.account_email) {
+        previousMessagesCounts[row.account_email] = row.message_count || 0;
+      }
+    }
+  }
+
+  const historicalMessagesCounts: Record<string, number> = {};
+  if (historicalMessagesData.data && Array.isArray(historicalMessagesData.data)) {
+    for (const row of historicalMessagesData.data) {
+      if (row && row.account_email) {
+        historicalMessagesCounts[row.account_email] = row.message_count || 0;
       }
     }
   }
@@ -153,7 +171,8 @@ export async function GET(request: Request) {
     ...Object.keys(currentReportsCounts), 
     ...Object.keys(previousReportsCounts),
     ...Object.keys(currentMessagesCounts),
-    ...Object.keys(previousMessagesCounts)
+    ...Object.keys(previousMessagesCounts),
+    ...Object.keys(historicalMessagesCounts)
   ]);
 
   const leaderboard = Array.from(allUsers).map(email => {
@@ -161,6 +180,7 @@ export async function GET(request: Request) {
     const previousReports = previousReportsCounts[email] || 0;
     const currentMessages = currentMessagesCounts[email] || 0;
     const previousMessages = previousMessagesCounts[email] || 0;
+    const historicalMessages = historicalMessagesCounts[email] || 0;
     
     // Total activity = messages + reports
     const currentPeriodActions = currentMessages + currentReports;
@@ -171,12 +191,23 @@ export async function GET(request: Request) {
     if (previousPeriodActions > 0) {
       percentChange = Math.round(((currentPeriodActions - previousPeriodActions) / previousPeriodActions) * 100);
     } else if (currentPeriodActions > 0) {
-      percentChange = 100; // New user with activity
+      percentChange = 100; // User with current activity but no previous activity
     }
     
-    // Determine user status
-    const isNew = previousPeriodActions === 0 && currentPeriodActions > 0;
-    const isReactivated = false; // For now, just use isNew. Reactivated would need historical data
+    // Determine user status: New vs Reactivated vs Regular
+    let isNew = false;
+    let isReactivated = false;
+    
+    if (previousPeriodActions === 0 && currentPeriodActions > 0) {
+      // User has current activity but no previous period activity
+      if (historicalMessages > 0) {
+        // Had activity before the previous period → Reactivated
+        isReactivated = true;
+      } else {
+        // No historical activity → New user
+        isNew = true;
+      }
+    }
     
     return {
       email,

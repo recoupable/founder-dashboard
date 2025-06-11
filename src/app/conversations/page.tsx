@@ -35,7 +35,7 @@ ChartJS.register(
   TimeSeriesScale
 );
 
-import { getDateRangeForFilter, getUserTypeBadge, getProfileCompleteness } from '@/lib/utils';
+import { getDateRangeForFilter, getProfileCompleteness } from '@/lib/utils';
 import type { ChartDataset, ApiChartDataset, MyChartData } from '@/lib/types';
 
 import Modal from '@/components/Modal';
@@ -70,7 +70,7 @@ export default function ConversationsPage() {
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [excludeTestEmails, setExcludeTestEmails] = useState(true);
-  const [timeFilter, setTimeFilter] = useState('Last 30 Days');
+  const [timeFilter, setTimeFilter] = useState('Last 7 Days');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -90,7 +90,7 @@ export default function ConversationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
-  const [leaderboardSort, setLeaderboardSort] = useState('activity');
+  const [leaderboardSort, setLeaderboardSort] = useState('consistency');
   const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
   const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
   const [refreshChartToggle, setRefreshChartToggle] = useState(false); // To trigger re-fetch
@@ -1516,15 +1516,7 @@ export default function ConversationsPage() {
                                     user.email
                                   )}
                                 </div>
-                                {(() => {
-                                  const profile = userProfiles[user.email];
-                                  const badge = getUserTypeBadge(user, profile);
-                                  return (
-                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>
-                                      {badge.text}
-                                    </span>
-                                  );
-                                })()}
+
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="text-sm text-gray-500">
@@ -1553,7 +1545,7 @@ export default function ConversationsPage() {
                               <span
                                 className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center
                                   ${leaderboardTrends[user.email].percentChange! > 0 ? 'bg-green-50 text-green-700 border border-green-200' : leaderboardTrends[user.email].percentChange! < 0 ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-gray-50 text-gray-600 border border-gray-200'}`}
-                                title={`Change vs previous period: ${leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}${leaderboardTrends[user.email].percentChange}%\nCurrent: ${leaderboardTrends[user.email].currentPeriodActions} actions\nPrevious: ${leaderboardTrends[user.email].previousPeriodActions} actions${leaderboardTrends[user.email].isNew ? '\n(New user this period)' : ''}`}
+                                title={`Change vs previous period: ${leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}${leaderboardTrends[user.email].percentChange}%\nCurrent: ${leaderboardTrends[user.email].current} actions\nPrevious: ${leaderboardTrends[user.email].previous} actions${leaderboardTrends[user.email].isNew ? '\n(New user this period)' : ''}`}
                               >
                                 {leaderboardTrends[user.email].percentChange! > 0 ? '▲' : leaderboardTrends[user.email].percentChange! < 0 ? '▼' : ''}
                                 {leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}{leaderboardTrends[user.email].percentChange}%
