@@ -8,6 +8,7 @@ export async function GET(request: Request) {
     const excludeTest = searchParams.get('excludeTest') === 'true';
     
     console.log('Active Users API: Calculating active users for period:', timeFilter);
+    console.log('Active Users API: Request timestamp:', new Date().toISOString());
     
     // Calculate date ranges based on time filter
     const now = new Date();
@@ -39,6 +40,10 @@ export async function GET(request: Request) {
 
     // Get current period and comparison periods
     const currentPeriod = getDateRange(timeFilter);
+    console.log('Active Users API: Current period:', {
+      start: currentPeriod.start?.toISOString(),
+      end: currentPeriod.end.toISOString()
+    });
     
     // Calculate comparison periods
     const previousPeriod: { start: Date | null, end: Date | null } = { start: null, end: null };
@@ -116,6 +121,10 @@ export async function GET(request: Request) {
     // Helper function to get active users for a time period
     const getActiveUsersForPeriod = async (start: Date | null, end: Date) => {
       const activeUserIds = new Set<string>();
+      console.log('Active Users API: Getting users for period:', {
+        start: start?.toISOString(),
+        end: end.toISOString()
+      });
       
       // Get users who sent messages
       let messageQuery = supabaseAdmin
@@ -132,6 +141,7 @@ export async function GET(request: Request) {
       }
       
       const { data: messageData } = await messageQuery;
+      console.log('Active Users API: Found messages:', messageData?.length || 0);
       
       if (messageData) {
         // Get room owners for message rooms
@@ -147,6 +157,7 @@ export async function GET(request: Request) {
           }
         }
       }
+      console.log('Active Users API: Users from messages:', activeUserIds.size);
       
       // Get users who created segment reports
       let reportQuery = supabaseAdmin
@@ -159,6 +170,7 @@ export async function GET(request: Request) {
       }
       
       const { data: reportData } = await reportQuery;
+      console.log('Active Users API: Found segment reports:', reportData?.length || 0);
       
       if (reportData) {
         // Convert emails to account IDs
@@ -178,14 +190,17 @@ export async function GET(request: Request) {
         }
       }
       
+      console.log('Active Users API: Final user count for period:', activeUserIds.size);
       return activeUserIds.size;
     };
 
     // Calculate active users for current and previous periods
-    const [currentActiveUsers, previousActiveUsers] = await Promise.all([
-      getActiveUsersForPeriod(currentPeriod.start, currentPeriod.end),
-      previousPeriod.start && previousPeriod.end ? getActiveUsersForPeriod(previousPeriod.start, previousPeriod.end) : Promise.resolve(0)
-    ]);
+    console.log('Active Users API: Calculating current period users...');
+    const currentActiveUsers = await getActiveUsersForPeriod(currentPeriod.start, currentPeriod.end);
+    
+    console.log('Active Users API: Calculating previous period users...');
+    const previousActiveUsers = previousPeriod.start && previousPeriod.end ? 
+      await getActiveUsersForPeriod(previousPeriod.start, previousPeriod.end) : 0;
 
     // Calculate percentage change
     let percentChange = 0;
