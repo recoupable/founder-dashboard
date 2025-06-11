@@ -33,6 +33,23 @@ function getDateRangeForFilter(filter: string): { start: Date | null, end: Date 
   return { start, end };
 }
 
+function getPowerUserCriteria(timeFilter: string): { minDaysActive: number, minTotalActions: number } {
+  switch (timeFilter) {
+    case 'Last 24 Hours':
+      return { minDaysActive: 1, minTotalActions: 10 }; // 10+ messages in 24 hours
+    case 'Last 7 Days':
+      return { minDaysActive: 5, minTotalActions: 1 }; // Active 5 out of 7 days (71.4%)
+    case 'Last 30 Days':
+      return { minDaysActive: 20, minTotalActions: 1 }; // Active 20 out of 30 days (66.7%)
+    case 'Last 3 Months':
+      return { minDaysActive: 60, minTotalActions: 1 }; // Active 60 out of 90 days (66.7%)
+    case 'Last 12 Months':
+      return { minDaysActive: 240, minTotalActions: 1 }; // Active 240 out of 365 days (65.8%)
+    default:
+      return { minDaysActive: 20, minTotalActions: 1 }; // Default to 30-day criteria
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -54,9 +71,13 @@ export async function GET(request: Request) {
 
     // Get power users for current period
     const getCurrentPeriodData = async () => {
+      if (!start) return { powerUsers: 0 };
+      
+      const { minDaysActive, minTotalActions } = getPowerUserCriteria(timeFilter);
+      
       // Get message counts by user
       const { data: messageData } = await supabaseAdmin.rpc('get_message_counts_by_user', { 
-        start_date: start ? start.toISOString() : '1970-01-01T00:00:00.000Z', 
+        start_date: start.toISOString(), 
         end_date: end.toISOString() 
       });
       
@@ -75,16 +96,11 @@ export async function GET(request: Request) {
         : messageData;
 
       // Get segment reports for this period and count them by user
-      let reportQuery = supabaseAdmin
+      const { data: reportData } = await supabaseAdmin
         .from('segment_reports')
         .select('account_email')
+        .gte('updated_at', start.toISOString())
         .lte('updated_at', end.toISOString());
-
-      if (start) {
-        reportQuery = reportQuery.gte('updated_at', start.toISOString());
-      }
-
-      const { data: reportData } = await reportQuery;
       
       // Count reports per user
       const reportCountByUser = new Map<string, number>();
@@ -105,6 +121,86 @@ export async function GET(request: Request) {
           }
         });
 
+      // Get all unique user emails
+      const allUserEmails = new Set<string>();
+      filteredMessageData.forEach((row: { account_email: string }) => {
+        allUserEmails.add(row.account_email);
+      });
+      reportCountByUser.forEach((_, email) => {
+        allUserEmails.add(email);
+      });
+
+      // Calculate consistency (days active) for each user
+      const userConsistency = new Map<string, number>();
+      
+      for (const email of allUserEmails) {
+        try {
+          // Get account_id for this email
+          const { data: emailData } = await supabaseAdmin
+            .from('account_emails')
+            .select('account_id')
+            .eq('email', email)
+            .single();
+          
+          if (!emailData) continue;
+          
+          const accountId = emailData.account_id;
+          const userDays = new Set<string>();
+
+          // Get both messages and reports in parallel
+          const [roomsData, reportRoomsData] = await Promise.all([
+            // Get rooms for messages
+            supabaseAdmin
+              .from('rooms')
+              .select('id')
+              .eq('account_id', accountId),
+            
+            // Get segment report rooms
+            supabaseAdmin
+              .from('rooms')
+              .select('updated_at, topic')
+              .eq('account_id', accountId)
+              .gte('updated_at', start.toISOString())
+              .lte('updated_at', end.toISOString())
+          ]);
+
+          const roomIds = (roomsData.data || []).map(r => r.id);
+
+          // Get messages for this user's rooms
+          if (roomIds.length > 0) {
+            const { data: msgRows } = await supabaseAdmin
+              .from('memories')
+              .select('updated_at')
+              .in('room_id', roomIds)
+              .gte('updated_at', start.toISOString())
+              .lte('updated_at', end.toISOString());
+
+            if (msgRows) {
+              msgRows.forEach((row: { updated_at: string }) => {
+                const day = row.updated_at.slice(0, 10);
+                userDays.add(day);
+              });
+            }
+          }
+
+          // Process segment reports
+          if (reportRoomsData.data) {
+            reportRoomsData.data.forEach((row: { updated_at: string, topic: string }) => {
+              // Only count rooms with topics starting with "segment:" (case insensitive)
+              if (row.topic?.toLowerCase?.().startsWith('segment:')) {
+                const day = row.updated_at.slice(0, 10);
+                userDays.add(day);
+              }
+            });
+          }
+
+          userConsistency.set(email, userDays.size);
+        } catch (error) {
+          console.error('Error calculating consistency for user', email, ':', error);
+          userConsistency.set(email, 0);
+        }
+      }
+
       // Combine users who sent messages or created reports with their total activity
       const userActivityMap = new Map<string, number>();
       
@@ -119,9 +215,14 @@ export async function GET(request: Request) {
         userActivityMap.set(email, existingActivity + reportCount);
       });
 
-      // Count power users (10+ total activity: messages + reports)
-      const userActivities = Array.from(userActivityMap.entries());
-      const powerUsers = userActivities.filter(entry => entry[1] >= 10).length;
+      // Count power users (must meet BOTH criteria: consistency AND volume)
+      let powerUsers = 0;
+      userActivityMap.forEach((totalActions, email) => {
+        const daysActive = userConsistency.get(email) || 0;
+        if (daysActive >= minDaysActive && totalActions >= minTotalActions) {
+          powerUsers++;
+        }
+      });
 
       return { powerUsers };
     };
@@ -130,6 +231,7 @@ export async function GET(request: Request) {
     const getPreviousPeriodData = async () => {
       if (!start) return { powerUsers: 0 };
 
+      const { minDaysActive, minTotalActions } = getPowerUserCriteria(timeFilter);
       const periodDuration = end.getTime() - start.getTime();
       const prevEnd = new Date(start.getTime());
       const prevStart = new Date(start.getTime() - periodDuration);
@@ -178,6 +280,86 @@ export async function GET(request: Request) {
           }
         });
 
+      // Get all unique user emails
+      const allUserEmails = new Set<string>();
+      filteredMessageData.forEach((row: { account_email: string }) => {
+        allUserEmails.add(row.account_email);
+      });
+      reportCountByUser.forEach((_, email) => {
+        allUserEmails.add(email);
+      });
+
+      // Calculate consistency (days active) for each user
+      const userConsistency = new Map<string, number>();
+      
+      for (const email of allUserEmails) {
+        try {
+          // Get account_id for this email
+          const { data: emailData } = await supabaseAdmin
+            .from('account_emails')
+            .select('account_id')
+            .eq('email', email)
+            .single();
+          
+          if (!emailData) continue;
+          
+          const accountId = emailData.account_id;
+          const userDays = new Set<string>();
+
+          // Get both messages and reports in parallel
+          const [roomsData, reportRoomsData] = await Promise.all([
+            // Get rooms for messages
+            supabaseAdmin
+              .from('rooms')
+              .select('id')
+              .eq('account_id', accountId),
+            
+            // Get segment report rooms
+            supabaseAdmin
+              .from('rooms')
+              .select('updated_at, topic')
+              .eq('account_id', accountId)
+              .gte('updated_at', prevStart.toISOString())
+              .lte('updated_at', prevEnd.toISOString())
+          ]);
+
+          const roomIds = (roomsData.data || []).map(r => r.id);
+
+          // Get messages for this user's rooms
+          if (roomIds.length > 0) {
+            const { data: msgRows } = await supabaseAdmin
+              .from('memories')
+              .select('updated_at')
+              .in('room_id', roomIds)
+              .gte('updated_at', prevStart.toISOString())
+              .lte('updated_at', prevEnd.toISOString());
+
+            if (msgRows) {
+              msgRows.forEach((row: { updated_at: string }) => {
+                const day = row.updated_at.slice(0, 10);
+                userDays.add(day);
+              });
+            }
+          }
+
+          // Process segment reports
+          if (reportRoomsData.data) {
+            reportRoomsData.data.forEach((row: { updated_at: string, topic: string }) => {
+              // Only count rooms with topics starting with "segment:" (case insensitive)
+              if (row.topic?.toLowerCase?.().startsWith('segment:')) {
+                const day = row.updated_at.slice(0, 10);
+                userDays.add(day);
+              }
+            });
+          }
+
+          userConsistency.set(email, userDays.size);
+        } catch (error) {
+          console.error('Error calculating consistency for user', email, ':', error);
+          userConsistency.set(email, 0);
+        }
+      }
+
       // Combine users who sent messages or created reports with their total activity
       const userActivityMap = new Map<string, number>();
       
@@ -192,9 +374,14 @@ export async function GET(request: Request) {
         userActivityMap.set(email, existingActivity + reportCount);
       });
 
-      // Count power users (10+ total activity: messages + reports)
-      const userActivities = Array.from(userActivityMap.entries());
-      const powerUsers = userActivities.filter(entry => entry[1] >= 10).length;
+      // Count power users (must meet BOTH criteria: consistency AND volume)
+      let powerUsers = 0;
+      userActivityMap.forEach((totalActions, email) => {
+        const daysActive = userConsistency.get(email) || 0;
+        if (daysActive >= minDaysActive && totalActions >= minTotalActions) {
+          powerUsers++;
+        }
+      });
 
       return { powerUsers };
     };

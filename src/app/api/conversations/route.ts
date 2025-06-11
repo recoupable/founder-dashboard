@@ -8,36 +8,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const searchQuery = searchParams.get('search') || '';
     const excludeTestEmails = searchParams.get('excludeTest') === 'true';
-    const timeFilter = searchParams.get('timeFilter') || 'Last 30 Days';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '100');
     const userFilter = searchParams.get('userFilter') || '';
-    
-    console.log('API ROUTE: Request parameters:', { 
-      searchQuery, 
-      excludeTestEmails, 
-      timeFilter,
-      page,
-      limit,
-      userFilter,
-      url: request.url
-    });
-    
-    // For debugging - check Supabase connection
-    console.log('API ROUTE: Checking Supabase connection');
-    try {
-      const { error: testError } = await supabaseAdmin.from('rooms').select('count', { count: 'exact', head: true });
-      if (testError) {
-        console.error('API ROUTE: Supabase connection test failed:', testError);
-      } else {
-        console.log('API ROUTE: Supabase connection test successful');
-      }
-    } catch (testErr) {
-      console.error('API ROUTE: Supabase connection test exception:', testErr);
-    }
-    
-    // Apply time filter - remove unused variable
-    // const now = new Date();
     
     // Get total count first for pagination
     const { count: totalRooms, error: countError } = await supabaseAdmin
@@ -47,7 +20,6 @@ export async function GET(request: NextRequest) {
     if (countError) {
       console.error('API ROUTE: Error getting room count:', countError);
     }
-    console.log(`API ROUTE: Total rooms in database: ${totalRooms}`);
 
     // Get total unique users across all conversations
     let totalUniqueUsers = 0;
@@ -83,8 +55,6 @@ export async function GET(request: NextRequest) {
       const allAccountIds = new Set([...emailAccountIds, ...walletAccountIds]);
       totalUniqueUsers = allAccountIds.size;
       
-      console.log(`API ROUTE: Total unique users (emails + wallets): ${totalUniqueUsers} (${allAccountEmailsData.length} email users + ${allWalletUsersData.length} wallet users, excluding no-contact accounts)`);
-      
       if (allAccountEmailsData) {
         // If excluding test emails, we need to filter the totals
         if (excludeTestEmails) {
@@ -94,7 +64,6 @@ export async function GET(request: NextRequest) {
             .select('email');
           
           const testEmailsList = testEmailsData?.map(item => item.email) || [];
-          console.log(`API ROUTE: Test emails to exclude: ${testEmailsList.length}`);
           
           // Filter out test accounts from both email and wallet users
           const nonTestAccountIds = new Set();
@@ -129,16 +98,12 @@ export async function GET(request: NextRequest) {
           const nonTestAccountIdsArray = Array.from(nonTestAccountIds);
           filteredTotalUniqueUsers = nonTestAccountIdsArray.length;
           
-          console.log(`API ROUTE: After filtering test emails - Email users: ${allAccountEmailsData.filter(e => e.email && !testEmailsList.includes(e.email) && !e.email.includes('@example.com') && !e.email.includes('+')).length}, Wallet users: ${allWalletUsersData.length}, Total: ${filteredTotalUniqueUsers}`);
-          
           if (nonTestAccountIdsArray.length > 0) {
             // Keep all rooms, just filter user count
             filteredTotalRooms = totalRooms || 0;
           } else {
             filteredTotalRooms = totalRooms || 0;
           }
-          
-          console.log(`API ROUTE: After filtering test emails - Rooms: ${filteredTotalRooms}, Users: ${filteredTotalUniqueUsers}`);
         } else {
           // Not excluding test emails, but still exclude no-contact accounts from USER count
           // Keep all rooms in the room count
@@ -152,7 +117,6 @@ export async function GET(request: NextRequest) {
 
     // Calculate pagination using filtered totals
     const offset = (page - 1) * limit;
-    console.log(`API ROUTE: Fetching page ${page}, limit ${limit}, offset ${offset}`);
 
     // Handle user filtering - find account ID for the filtered email
     let userFilteredAccountIds: Set<string> | null = null;
@@ -389,7 +353,7 @@ export async function GET(request: NextRequest) {
       try {
         const { data: memoriesData, error: memoriesError } = await supabaseAdmin
           .from('memories')
-          .select('room_id, role')
+          .select('room_id')
           .in('room_id', batch);
           
         if (memoriesError) {
@@ -399,19 +363,9 @@ export async function GET(request: NextRequest) {
         
         if (memoriesData && memoriesData.length > 0) {
           // Count occurrences of each room_id in this batch
-          const roleStats = new Map<string, number>();
-          for (const memory of memoriesData as { room_id: string; role: string }[]) {
+          for (const memory of memoriesData as { room_id: string }[]) {
             const count = messageCountMap.get(memory.room_id) || 0;
             messageCountMap.set(memory.room_id, count + 1);
-            
-            // Track role statistics for debugging
-            const roleCount = roleStats.get(memory.role) || 0;
-            roleStats.set(memory.role, roleCount + 1);
-          }
-          
-          // Log role statistics for debugging
-          if (i === 0) { // Only log for first batch to avoid spam
-            console.log(`API ROUTE: Message role distribution:`, Array.from(roleStats.entries()));
           }
         }
       } catch (error) {

@@ -8,8 +8,6 @@
  * @param currentPage - Current page number
  * @param totalPages - Total number of pages
  * @param onPageChange - Callback when page changes
- * @param totalCount - Total number of conversations
- * @param totalUniqueUsers - Total number of unique users
  */
 import React from 'react';
 import type { ConversationListItem } from '@/lib/conversationService';
@@ -23,8 +21,6 @@ export interface ConversationListProps {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
-  totalCount: number;
-  totalUniqueUsers: number;
 }
 
 const ConversationList: React.FC<ConversationListProps> = ({
@@ -35,9 +31,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
   onConversationSelect,
   currentPage,
   totalPages,
-  onPageChange,
-  totalCount,
-  totalUniqueUsers
+  onPageChange
 }) => {
   if (loading) {
     return (
@@ -69,14 +63,6 @@ const ConversationList: React.FC<ConversationListProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-medium text-gray-900">Recent Conversations</h3>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-            {totalCount.toLocaleString()} conversations
-          </span>
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-            {totalUniqueUsers.toLocaleString()} users
-          </span>
-        </div>
       </div>
 
       {conversations.length === 0 ? (
