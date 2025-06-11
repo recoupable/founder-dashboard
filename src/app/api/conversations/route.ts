@@ -156,8 +156,8 @@ export async function GET(request: NextRequest) {
 
     // Handle user filtering - find account ID for the filtered email
     let userFilteredAccountIds: Set<string> | null = null;
-    if (userFilter) {
-      console.log(`API ROUTE: Filtering by user: ${userFilter}`);
+    if (userFilter && userFilter.trim() !== '') {
+      console.log(`[API] Filtering by user: ${userFilter}`);
       
       // Check if this is a wallet user filter (contains "wallet")
       if (userFilter.includes('(wallet)')) {
@@ -215,10 +215,13 @@ export async function GET(request: NextRequest) {
     
     if (excludeTestEmails || userFilteredAccountIds) {
       console.log('API ROUTE: Fetching rooms with filtering (test emails and/or user filter)');
-      
       let allowedAccountIds = new Set<string>();
-      
-      if (excludeTestEmails) {
+
+      if (userFilteredAccountIds) {
+        // If filtering by user, skip test email exclusion and use only the filtered user accounts
+        allowedAccountIds = new Set(userFilteredAccountIds);
+        console.log('[API] Skipping test email exclusion because user filter is active');
+      } else if (excludeTestEmails) {
         // Get test emails list
         const { data: testEmailsData } = await supabaseAdmin
           .from('test_emails')
@@ -306,23 +309,39 @@ export async function GET(request: NextRequest) {
       const allowedAccountIdsArray = Array.from(allowedAccountIds);
       console.log(`API ROUTE: Fetching rooms for ${allowedAccountIdsArray.length} allowed accounts`);
       
+      console.log('[API] Allowed account IDs count:', allowedAccountIdsArray.length);
+      console.log('[API] First 10 allowed account IDs:', allowedAccountIdsArray.slice(0, 10));
+      
       if (allowedAccountIdsArray.length > 0) {
-        // Fetch rooms only for allowed accounts
-        const { data, error } = await supabaseAdmin
-          .from('rooms')
-          .select('id, account_id, artist_id, updated_at, topic')
-          .in('account_id', allowedAccountIdsArray)
-          .order('updated_at', { ascending: false })
-          .range(offset, offset + limit - 1);
-        
+        // Batch the .in() queries to avoid hitting Supabase/Postgres limits
+        const chunkSize = 100;
+        const allRooms: Room[] = [];
+        for (let i = 0; i < allowedAccountIdsArray.length; i += chunkSize) {
+          const chunk = allowedAccountIdsArray.slice(i, i + chunkSize);
+          console.log(`[API] Fetching rooms for chunk ${Math.floor(i/chunkSize) + 1} (${chunk.length} accounts)`);
+          const { data, error } = await supabaseAdmin
+            .from('rooms')
+            .select('id, account_id, artist_id, updated_at, topic')
+            .in('account_id', chunk)
+            .order('updated_at', { ascending: false });
+          if (error) {
+            console.error(`[API] Error fetching rooms for chunk ${Math.floor(i/chunkSize) + 1}:`, error);
+            continue;
+          }
+          if (data) {
+            allRooms.push(...data);
+          }
+        }
+        // Apply pagination after merging all results
+        const pagedRooms = allRooms.slice(offset, offset + limit);
         // Filter out test artist rooms after fetching (only if excludeTestEmails is true)
         if (excludeTestEmails) {
-          roomsData = data?.filter(room => !testArtistAccountIds.has(room.artist_id)) || [];
-          console.log(`API ROUTE: Filtered out ${(data?.length || 0) - roomsData.length} rooms with test artists`);
+          roomsData = pagedRooms.filter(room => !testArtistAccountIds.has(room.artist_id)) || [];
+          console.log(`API ROUTE: Filtered out ${(pagedRooms.length || 0) - roomsData.length} rooms with test artists`);
         } else {
-          roomsData = data || [];
+          roomsData = pagedRooms || [];
         }
-        roomsError = error;
+        roomsError = null;
       } else {
         roomsData = [];
         roomsError = null;
@@ -761,6 +780,28 @@ export async function GET(request: NextRequest) {
           conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
       );
       console.log(`API ROUTE: Returning ${filteredResult.length} filtered conversations (page ${page}/${totalPages})`);
+      return NextResponse.json({
+        conversations: filteredResult,
+        totalCount: filteredTotalRooms,
+        totalUniqueUsers: filteredTotalUniqueUsers,
+        currentPage: page,
+        totalPages,
+        hasMore,
+        filtered: true,
+        originalCount: result.length,
+        conversationCounts
+      });
+    }
+
+    console.log('[API] Emails in fetched conversations:', result.map(c => c.account_email));
+
+    if (userFilter && userFilter.trim() !== '') {
+      console.log(`[API] Filtering by user: ${userFilter}`);
+      const filteredResult = result.filter(
+        (conversation) =>
+          conversation.account_email?.toLowerCase?.().trim() === userFilter.toLowerCase().trim()
+      );
+      console.log('[API] Emails after userFilter:', filteredResult.map(c => c.account_email));
       return NextResponse.json({
         conversations: filteredResult,
         totalCount: filteredTotalRooms,

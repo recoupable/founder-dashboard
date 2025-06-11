@@ -250,7 +250,7 @@ export default function ConversationsPage() {
           userFilter: selectedUserFilter || undefined
         };
         
-        console.log('Fetching conversations with filters:', filters);
+        console.log('[CONVERSATIONS] Filters for API:', filters);
         
         // Add event listener to capture console logs about data source
         const originalConsoleLog = console.log;
@@ -1187,6 +1187,7 @@ export default function ConversationsPage() {
                         <button
                           type="button"
                           onClick={() => {
+                            console.log('[LEADERBOARD] User selected for filter:', user.email);
                             if (expandedUser === user.email) {
                               setExpandedUser(null); // Collapse if already expanded
                             } else {
