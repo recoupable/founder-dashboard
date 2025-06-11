@@ -43,11 +43,30 @@ import Modal from '@/components/Modal';
 import ConversationList from '@/components/ConversationList';
 import ConversationDetailComponent from '@/components/ConversationDetail';
 import SearchAndFilters from '@/components/SearchAndFilters';
+import AdvancedConversationFilters from '@/components/ConversationFilters';
 import ActiveUsersChart from '@/components/ActiveUsersChart';
 import UserFilter from '@/components/UserFilter';
-import MetricsSection from '@/components/MetricsSection';
+import MetricsSection, { MetricType } from '@/components/MetricsSection';
 
 export default function ConversationsPage() {
+  // Helper function to detect if an identifier is a wallet address
+  const isWalletAddress = (identifier: string): boolean => {
+    // Ethereum addresses are 42 characters and start with 0x
+    // Bitcoin addresses are typically 26-35 characters
+    // This is a simple detection - you can make it more sophisticated
+    return /^0x[a-fA-F0-9]{40}$/.test(identifier) || 
+           /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(identifier) ||
+           /^bc1[a-z0-9]{39,59}$/.test(identifier);
+  };
+
+  // Helper function to format wallet address for display
+  const formatWalletAddress = (wallet: string): string => {
+    if (wallet.length > 10) {
+      return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+    }
+    return wallet;
+  };
+
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [excludeTestEmails, setExcludeTestEmails] = useState(true);
@@ -91,6 +110,24 @@ export default function ConversationsPage() {
   } | null>(null);
   const [activeUsersChartLoading, setActiveUsersChartLoading] = useState(false);
   const [activeUsersChartError, setActiveUsersChartError] = useState<string | null>(null);
+
+  // Metric selection state
+  const [selectedMetric, setSelectedMetric] = useState<MetricType | null>('activeUsers');
+  
+  // Chart data for different metrics
+  const [pmfSurveyReadyChartData, setPmfSurveyReadyChartData] = useState<{
+    labels: string[];
+    data: number[];
+  } | null>(null);
+  const [pmfSurveyReadyChartLoading, setPmfSurveyReadyChartLoading] = useState(false);
+  const [pmfSurveyReadyChartError, setPmfSurveyReadyChartError] = useState<string | null>(null);
+
+  const [powerUsersChartData, setPowerUsersChartData] = useState<{
+    labels: string[];
+    data: number[];
+  } | null>(null);
+  const [powerUsersChartLoading, setPowerUsersChartLoading] = useState(false);
+  const [powerUsersChartError, setPowerUsersChartError] = useState<string | null>(null);
 
   // PMF Survey Ready state
   const [pmfSurveyReadyData, setPmfSurveyReadyData] = useState({
@@ -185,6 +222,9 @@ export default function ConversationsPage() {
   const [profileSaving, setProfileSaving] = useState<string | null>(null);
   const [bulkSyncing, setBulkSyncing] = useState(false);
 
+  // Leaderboard pagination state
+  const [leaderboardLimit, setLeaderboardLimit] = useState(20);
+
   const [showChart, setShowChart] = useState(false);
   const [chartData, setChartData] = useState<MyChartData | null>(null);
   const [chartLoading, setChartLoading] = useState(false);
@@ -195,6 +235,55 @@ export default function ConversationsPage() {
   const [annotationModalDate, setAnnotationModalDate] = useState(''); // YYYY-MM-DD
   const [annotationModalDescription, setAnnotationModalDescription] = useState('');
   const [isSavingAnnotation, setIsSavingAnnotation] = useState(false);
+
+  // Add state for leaderboard retention trends
+  const [leaderboardTrends, setLeaderboardTrends] = useState<Record<string, { current: number, previous: number, percentChange: number | null, isNew: boolean, isReactivated: boolean }>>({});
+
+  // Add state for per-user trend chart
+  const [userTrendLoading, setUserTrendLoading] = useState(false);
+  const [userTrendError, setUserTrendError] = useState<string | null>(null);
+  const [userTrendData, setUserTrendData] = useState<{ labels: string[]; data: number[] } | null>(null);
+  const [trendUser, setTrendUser] = useState<string | null>(null);
+
+  // Add state to store per-user consistency (number of active days in period)
+  const [userConsistency, setUserConsistency] = useState<Record<string, number>>({});
+
+  // Add state for consistency loading
+  const [consistencyLoading, setConsistencyLoading] = useState(false);
+
+  // Define testEmailFilteredConversations before any useEffect that uses it
+  const testEmailFilteredConversations = conversations.filter(conv => {
+    if (testEmails.includes(conv.account_email)) return false;
+    if (conv.account_email.includes('@example.com')) return false;
+    if (conv.account_email.includes('+')) return false;
+    return true;
+  });
+
+  // 2. Fetch segment room IDs in a useEffect
+  useEffect(() => {
+    async function fetchSegmentRoomIds() {
+      // Initialize Supabase client
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !supabaseAnonKey) return;
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      // Collect all room IDs for the period
+      const allRoomIds = testEmailFilteredConversations.map(conv => conv.room_id);
+      const ids = new Set<string>();
+      if (allRoomIds.length > 0) {
+        const batchSize = 1000;
+        for (let i = 0; i < allRoomIds.length; i += batchSize) {
+          const batchIds = allRoomIds.slice(i, i + batchSize);
+          const { data: segmentRooms } = await supabase
+            .from('segment_rooms')
+            .select('room_id')
+            .in('room_id', batchIds);
+          (segmentRooms || []).forEach((r: { room_id: string }) => ids.add(r.room_id));
+        }
+      }
+    }
+    fetchSegmentRoomIds();
+  }, [testEmailFilteredConversations, timeFilter]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -465,10 +554,8 @@ export default function ConversationsPage() {
       .then(res => res.json())
       .then((data: { segmentReports: { email: string, segment_report_count: number }[] }) => {
         const map: Record<string, number> = {};
-        if (data.segmentReports) {
-          for (const row of data.segmentReports) {
-            map[row.email] = row.segment_report_count;
-          }
+        for (const row of data.segmentReports || []) {
+          map[row.email] = row.segment_report_count;
         }
         setSegmentReportsByUser(map);
       });
@@ -570,6 +657,11 @@ export default function ConversationsPage() {
     fetchActiveUsers();
   }, [timeFilter, excludeTestEmails]);
 
+  // Handle metric selection
+  const handleMetricClick = (metricType: MetricType) => {
+    setSelectedMetric(metricType);
+  };
+
   // Fetch active users chart data when timeFilter or excludeTestEmails changes
   useEffect(() => {
     const fetchActiveUsersChart = async () => {
@@ -600,6 +692,70 @@ export default function ConversationsPage() {
     };
     
     fetchActiveUsersChart();
+  }, [timeFilter, excludeTestEmails]);
+
+  // Fetch PMF Survey Ready chart data when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchPmfSurveyReadyChart = async () => {
+      setPmfSurveyReadyChartLoading(true);
+      setPmfSurveyReadyChartError(null);
+      
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        const response = await fetch(`/api/pmf-survey-ready-chart?${params}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setPmfSurveyReadyChartData(data);
+        } else {
+          console.error('Failed to fetch PMF Survey Ready chart:', data.error);
+          setPmfSurveyReadyChartError('Failed to load chart data');
+        }
+      } catch (error) {
+        console.error('Error fetching PMF Survey Ready chart:', error);
+        setPmfSurveyReadyChartError('Failed to load chart data');
+      } finally {
+        setPmfSurveyReadyChartLoading(false);
+      }
+    };
+    
+    fetchPmfSurveyReadyChart();
+  }, [timeFilter, excludeTestEmails]);
+
+  // Fetch Power Users chart data when timeFilter or excludeTestEmails changes
+  useEffect(() => {
+    const fetchPowerUsersChart = async () => {
+      setPowerUsersChartLoading(true);
+      setPowerUsersChartError(null);
+      
+      try {
+        const params = new URLSearchParams({
+          timeFilter,
+          excludeTest: excludeTestEmails.toString()
+        });
+        
+        const response = await fetch(`/api/power-users-chart?${params}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          setPowerUsersChartData(data);
+        } else {
+          console.error('Failed to fetch Power Users chart:', data.error);
+          setPowerUsersChartError('Failed to load chart data');
+        }
+      } catch (error) {
+        console.error('Error fetching Power Users chart:', error);
+        setPowerUsersChartError('Failed to load chart data');
+      } finally {
+        setPowerUsersChartLoading(false);
+      }
+    };
+    
+    fetchPowerUsersChart();
   }, [timeFilter, excludeTestEmails]);
 
   // Fetch PMF Survey Ready data when timeFilter or excludeTestEmails changes
@@ -864,6 +1020,73 @@ export default function ConversationsPage() {
     }
   };
 
+  // Fetch leaderboard retention trends when timeFilter changes and clear consistency cache
+  useEffect(() => {
+    const { start, end } = getDateRangeForFilter(timeFilter);
+    let url = '/api/conversations/leaderboard';
+    if (start && end) {
+      url += `?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
+    }
+    fetch(url)
+      .then(res => res.json())
+      .then((data: { leaderboard: { email: string, currentPeriodActions: number, previousPeriodActions: number, percentChange: number | null, isNew: boolean, isReactivated: boolean }[] }) => {
+        const map: Record<string, { current: number, previous: number, percentChange: number | null, isNew: boolean, isReactivated: boolean }> = {};
+        if (data.leaderboard) {
+          for (const row of data.leaderboard) {
+            map[row.email] = {
+              current: row.currentPeriodActions,
+              previous: row.previousPeriodActions,
+              percentChange: row.percentChange,
+              isNew: row.isNew,
+              isReactivated: row.isReactivated
+            };
+          }
+        }
+        setLeaderboardTrends(map);
+      });
+    
+    // Clear consistency cache when time filter changes
+    setUserConsistency({});
+  }, [timeFilter]);
+
+  // Fetch per-user trend when leaderboard user is clicked
+  const fetchUserTrend = async (email: string) => {
+    setUserTrendLoading(true);
+    setUserTrendError(null);
+    setTrendUser(email);
+    try {
+      const { start, end } = getDateRangeForFilter(timeFilter);
+      const params = new URLSearchParams({ email, timeFilter });
+      if (start && end) {
+        params.append('start_date', start);
+        params.append('end_date', end);
+      }
+      const res = await fetch(`/api/user-activity-trend?${params}`);
+      const data: { trend: { date: string; actions: number }[]; error?: string } = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch user trend');
+      setUserTrendData({
+        labels: data.trend.map((d) => d.date),
+        data: data.trend.map((d) => d.actions),
+      });
+      // Remove consistency calculation - leaderboard consistency is source of truth
+      // const consistency = data.trend.filter((d) => d.actions > 0).length;
+      // setUserConsistency((prev) => ({ ...prev, [email]: consistency }));
+    } catch (err: unknown) {
+      setUserTrendError(err instanceof Error ? err.message : 'Failed to fetch user trend');
+      setUserTrendData(null);
+    } finally {
+      setUserTrendLoading(false);
+    }
+  };
+
+  // Add effect to refetch user trend when timeFilter changes and a user is selected
+  React.useEffect(() => {
+    if (trendUser) {
+      fetchUserTrend(trendUser);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trendUser, timeFilter]);
+
   return (
     <main className="p-4 sm:p-8">
       {/* Toggle button for cards/chart */}
@@ -1048,13 +1271,8 @@ export default function ConversationsPage() {
         ) : (
           <div className="max-w-7xl mx-auto">
             <SearchAndFilters
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              excludeTestEmails={excludeTestEmails}
-              onToggleTestEmails={setExcludeTestEmails}
               timeFilter={timeFilter}
               onTimeFilterChange={setTimeFilter}
-              onManageTestEmails={() => setShowTestEmailPopup(true)}
             />
 
             {/* Analytics Metrics Cards */}
@@ -1062,12 +1280,50 @@ export default function ConversationsPage() {
               activeUsersData={activeUsersData}
               powerUsersData={powerUsersData}
               pmfSurveyReadyData={pmfSurveyReadyData}
+              timeFilter={timeFilter}
+              onMetricClick={handleMetricClick}
+              selectedMetric={selectedMetric}
             />
 
             <ActiveUsersChart
-              chartData={activeUsersChartData}
-              loading={activeUsersChartLoading}
-              error={activeUsersChartError}
+              chartData={(() => {
+                if (trendUser) return userTrendData;
+                switch (selectedMetric) {
+                  case 'pmfSurveyReady':
+                    return pmfSurveyReadyChartData;
+                  case 'powerUsers':
+                    return powerUsersChartData;
+                  case 'activeUsers':
+                  default:
+                    return activeUsersChartData;
+                }
+              })()}
+              loading={(() => {
+                if (trendUser) return userTrendLoading;
+                switch (selectedMetric) {
+                  case 'pmfSurveyReady':
+                    return pmfSurveyReadyChartLoading;
+                  case 'powerUsers':
+                    return powerUsersChartLoading;
+                  case 'activeUsers':
+                  default:
+                    return activeUsersChartLoading;
+                }
+              })()}
+              error={(() => {
+                if (trendUser) return userTrendError;
+                switch (selectedMetric) {
+                  case 'pmfSurveyReady':
+                    return pmfSurveyReadyChartError;
+                  case 'powerUsers':
+                    return powerUsersChartError;
+                  case 'activeUsers':
+                  default:
+                    return activeUsersChartError;
+                }
+              })()}
+              isUserTrend={!!trendUser}
+              metricType={trendUser ? 'activeUsers' : selectedMetric || 'activeUsers'}
             />
 
             {/* User Leaderboard (Time Filtered) */}
@@ -1093,11 +1349,13 @@ export default function ConversationsPage() {
                     value={leaderboardSort}
                     onChange={(e) => setLeaderboardSort(e.target.value)}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    title="Sort leaderboard by messages, reports, or all actions"
+                    title="Sort leaderboard by messages, reports, all actions, or activity growth"
                   >
                     <option value="messages">Sort by Messages</option>
                     <option value="reports">Sort by Reports</option>
                     <option value="activity">Sort by All Actions</option>
+                    <option value="retention">Sort by Activity Growth</option>
+                    <option value="consistency">Sort by Consistency</option>
                   </select>
                   <button
                     onClick={bulkSyncCompanies}
@@ -1175,14 +1433,50 @@ export default function ConversationsPage() {
                       users.sort((a, b) => b.messages - a.messages);
                     } else if (leaderboardSort === 'reports') {
                       users.sort((a, b) => b.reports - a.reports);
+                    } else if (leaderboardSort === 'retention') {
+                      users.sort((a, b) => {
+                        const aTrend = leaderboardTrends[a.email]?.percentChange ?? -Infinity;
+                        const bTrend = leaderboardTrends[b.email]?.percentChange ?? -Infinity;
+                        return bTrend - aTrend;
+                      });
+                    } else if (leaderboardSort === 'consistency') {
+                      // Get emails for visible users
+                      const emailsToFetch = users
+                        .filter(u => userConsistency[u.email] === undefined)
+                        .map(u => u.email);
+                      if (emailsToFetch.length > 0 && !consistencyLoading) {
+                        setConsistencyLoading(true);
+                        fetch('/api/user-activity-consistency', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ emails: emailsToFetch, timeFilter }),
+                        })
+                          .then(res => res.json())
+                          .then((data: Record<string, number>) => {
+                            setUserConsistency(prev => ({ ...prev, ...data }));
+                          })
+                          .finally(() => setConsistencyLoading(false));
+                      }
+                      // If still loading, show a loading state
+                      if (consistencyLoading) {
+                        return (
+                          <div className="text-center text-gray-500 py-8">Loading consistency data...</div>
+                        );
+                      }
+                      users.sort((a, b) => userConsistency[b.email] - userConsistency[a.email]);
                     } else {
                       users.sort((a, b) => b.totalActivity - a.totalActivity);
                     }
                     
-                    // Take top 20
-                    users = users.slice(0, 20);
+                    // Store total count before pagination
+                    const totalActiveUsers = users.length;
                     
-                    return users.map((user, index) => (
+                    // Apply pagination limit
+                    const visibleUsers = users.slice(0, leaderboardLimit);
+                    
+                    return (
+                      <div className="space-y-3">
+                        {visibleUsers.map((user, index) => (
                       <div key={user.email}>
                         <button
                           type="button"
@@ -1196,6 +1490,7 @@ export default function ConversationsPage() {
                               setSearchQuery(''); // Clear search query to avoid conflicts
                               runUserAnalysis(user.email); // Automatically run analysis
                               fetchUserActivityDetails(user.email); // Fetch structured activity data
+                              fetchUserTrend(user.email); // Fetch per-user trend
                             }
                           }}
                           className={`w-full flex items-center justify-between p-4 rounded-lg transition-colors text-left ${
@@ -1213,8 +1508,15 @@ export default function ConversationsPage() {
                             </div>
                             <div>
                               <div className="flex items-center gap-2 mb-1">
-                                <div className="font-medium text-gray-900 truncate max-w-xs">
-                                  {user.email}
+                                <div className="font-medium text-gray-900 truncate max-w-xs flex items-center gap-2">
+                                  {isWalletAddress(user.email) ? (
+                                    <>
+                                      <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">👛</span>
+                                      {formatWalletAddress(user.email)}
+                                    </>
+                                  ) : (
+                                    user.email
+                                  )}
                                 </div>
                                 {(() => {
                                   const profile = userProfiles[user.email];
@@ -1241,13 +1543,42 @@ export default function ConversationsPage() {
                               </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-medium text-gray-900">
+                          <div className="flex items-center gap-2 justify-end min-w-[120px]">
+                            {/* Consistency badge */}
+                            {leaderboardSort === 'consistency' && (
+                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center bg-blue-50 text-blue-700 border border-blue-200">
+                                {(userConsistency[user.email] || 0)} days active
+                              </span>
+                            )}
+                            {/* Retention trend badge */}
+                            {leaderboardTrends[user.email] && !leaderboardTrends[user.email].isNew && !leaderboardTrends[user.email].isReactivated && (
+                              <span
+                                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center
+                                  ${leaderboardTrends[user.email].percentChange! > 0 ? 'bg-green-50 text-green-700 border border-green-200' : leaderboardTrends[user.email].percentChange! < 0 ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-gray-50 text-gray-600 border border-gray-200'}`}
+                                title={`Change vs previous period: ${leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}${leaderboardTrends[user.email].percentChange}%\nCurrent: ${leaderboardTrends[user.email].current} actions\nPrevious: ${leaderboardTrends[user.email].previous} actions`}
+                              >
+                                {leaderboardTrends[user.email].percentChange! > 0 ? '▲' : leaderboardTrends[user.email].percentChange! < 0 ? '▼' : ''}
+                                {leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}{leaderboardTrends[user.email].percentChange}%
+                              </span>
+                            )}
+                            {/* New user badge */}
+                            {leaderboardTrends[user.email] && leaderboardTrends[user.email].isNew && (
+                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center bg-gray-50 text-gray-600 border border-gray-200"
+                                title="New user - first activity in this period">
+                                New
+                              </span>
+                            )}
+                            {/* Reactivated user badge */}
+                            {leaderboardTrends[user.email] && leaderboardTrends[user.email].isReactivated && (
+                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center bg-gray-50 text-gray-600 border border-gray-200"
+                                title="Reactivated user - returned after being inactive">
+                                Reactivated
+                              </span>
+                            )}
+                            {/* Actions/messages/reports number */}
+                            <span className="ml-2 text-lg font-bold text-gray-900 min-w-12 text-right inline-block">
                               {leaderboardSort === 'messages' ? user.messages : leaderboardSort === 'reports' ? user.reports : user.totalActivity}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {leaderboardSort === 'messages' ? 'messages' : leaderboardSort === 'reports' ? 'reports' : 'actions'}
-                            </div>
+                            </span>
                           </div>
                         </button>
                         
@@ -1779,7 +2110,21 @@ export default function ConversationsPage() {
                           </div>
                         )}
                       </div>
-                    ));
+                        ))}
+
+                        {/* Simple Load More */}
+                        {totalActiveUsers > leaderboardLimit && (
+                          <div className="text-center mt-4">
+                            <button
+                              onClick={() => setLeaderboardLimit(totalActiveUsers)}
+                              className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                              Show all {totalActiveUsers} users (+{totalActiveUsers - leaderboardLimit} more)
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
                   })()}
                   
                   {(() => {
@@ -1803,8 +2148,22 @@ export default function ConversationsPage() {
 
             {/* Conversation Management Section */}
             <div className="bg-white rounded-2xl shadow-md p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
-                <h2 className="text-xl font-semibold">Conversation Management</h2>
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-4">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-xl font-semibold">Conversation Management</h2>
+                  <div className="text-sm text-gray-600">
+                    {totalCount.toLocaleString()} conversations • {totalUniqueUsers.toLocaleString()} users
+                  </div>
+                </div>
+                <div className="lg:max-w-lg lg:mr-4">
+                  <AdvancedConversationFilters
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    excludeTestEmails={excludeTestEmails}
+                    onToggleTestEmails={setExcludeTestEmails}
+                    onManageTestEmails={() => setShowTestEmailPopup(true)}
+                  />
+                </div>
               </div>
 
               <UserFilter
@@ -1825,8 +2184,6 @@ export default function ConversationsPage() {
                   currentPage={currentPage}
                   totalPages={totalPages}
                   onPageChange={setCurrentPage}
-                  totalCount={totalCount}
-                  totalUniqueUsers={totalUniqueUsers}
                 />
 
                 <ConversationDetailComponent

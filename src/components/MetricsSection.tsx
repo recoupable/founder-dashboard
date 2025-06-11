@@ -25,42 +25,79 @@ export interface PmfSurveyReadyData extends MetricData {
   previousPmfSurveyReady: number;
 }
 
+export type MetricType = 'activeUsers' | 'pmfSurveyReady' | 'powerUsers';
+
 export interface MetricsSectionProps {
   activeUsersData: ActiveUsersData;
   powerUsersData: PowerUsersData;
   pmfSurveyReadyData: PmfSurveyReadyData;
+  timeFilter: string;
+  onMetricClick?: (metricType: MetricType) => void;
+  selectedMetric?: MetricType | null;
 }
 
 const MetricsSection: React.FC<MetricsSectionProps> = ({
   activeUsersData,
   powerUsersData,
-  pmfSurveyReadyData
+  pmfSurveyReadyData,
+  timeFilter,
+  onMetricClick,
+  selectedMetric
 }) => {
+  const getActiveUsersTitle = (timeFilter: string): string => {
+    switch (timeFilter) {
+      case 'Last 24 Hours':
+        return 'Daily Active Users';
+      case 'Last 7 Days':
+        return 'Weekly Active Users';
+      case 'Last 30 Days':
+        return 'Monthly Active Users';
+      case 'Last 3 Months':
+        return 'Quarterly Active Users';
+      case 'Last 12 Months':
+        return 'Annual Active Users';
+      default:
+        return 'Active Users';
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
       <MetricCard
-        title="Active Users"
+        title={getActiveUsersTitle(timeFilter)}
         value={activeUsersData.activeUsers}
         description="Active Users are users who have sent at least one message or created at least one segment report during the selected time period."
         icon={<ChatBubbleLeftRightIcon className="h-5 w-5" />}
-      />
-
-      <MetricCard
-        title="Power Users"
-        value={powerUsersData.powerUsers}
-        description="Power Users are your most engaged users with 10+ total actions (messages + reports) in the selected period."
-        icon={<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>}
+        percentChange={activeUsersData.percentChange}
+        changeDirection={activeUsersData.changeDirection}
+        onClick={onMetricClick ? () => onMetricClick('activeUsers') : undefined}
+        isSelected={selectedMetric === 'activeUsers'}
       />
 
       <MetricCard
         title="PMF Survey Ready"
         value={pmfSurveyReadyData.pmfSurveyReady}
-        description="PMF Survey Ready users meet Sean Ellis criteria for product-market fit surveys."
+        description="Users with 2+ sessions and recent activity (last 14 days). Ready for product-market fit surveys."
         icon={<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>}
+        percentChange={pmfSurveyReadyData.percentChange}
+        changeDirection={pmfSurveyReadyData.changeDirection}
+        onClick={onMetricClick ? () => onMetricClick('pmfSurveyReady') : undefined}
+        isSelected={selectedMetric === 'pmfSurveyReady'}
+      />
+
+      <MetricCard
+        title="Power Users"
+        value={powerUsersData.powerUsers}
+        description="Highly consistent users: 10+ messages daily, or active ~67% of days (5/7 days, 20/30 days, 60/90 days)."
+        icon={<svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>}
+        percentChange={powerUsersData.percentChange}
+        changeDirection={powerUsersData.changeDirection}
+        onClick={onMetricClick ? () => onMetricClick('powerUsers') : undefined}
+        isSelected={selectedMetric === 'powerUsers'}
       />
     </div>
   );

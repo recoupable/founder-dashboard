@@ -3,9 +3,13 @@
  * @param chartData - Chart data with labels and data points
  * @param loading - Whether the chart is loading
  * @param error - Error message if any
+ * @param isUserTrend - Whether the chart is displaying user trends
+ * @param metricType - The type of metric being displayed
  */
 import React from 'react';
 import { Line } from 'react-chartjs-2';
+import type { TooltipItem } from 'chart.js';
+import { format, parseISO } from 'date-fns';
 
 export interface ActiveUsersChartData {
   labels: string[];
@@ -16,17 +20,49 @@ export interface ActiveUsersChartProps {
   chartData: ActiveUsersChartData | null;
   loading: boolean;
   error: string | null;
+  isUserTrend?: boolean;
+  metricType?: 'activeUsers' | 'pmfSurveyReady' | 'powerUsers';
 }
 
 const ActiveUsersChart: React.FC<ActiveUsersChartProps> = ({
   chartData,
   loading,
-  error
+  error,
+  isUserTrend = false,
+  metricType = 'activeUsers'
 }) => {
+  const getChartTitle = () => {
+    if (isUserTrend) return 'User Activity Trend';
+    
+    switch (metricType) {
+      case 'pmfSurveyReady':
+        return 'PMF Survey Ready Users Trend';
+      case 'powerUsers':
+        return 'Power Users Trend';
+      case 'activeUsers':
+      default:
+        return 'Active Users Trend';
+    }
+  };
+
+  const getDatasetLabel = () => {
+    if (isUserTrend) return 'Actions';
+    
+    switch (metricType) {
+      case 'pmfSurveyReady':
+        return 'PMF Survey Ready Users';
+      case 'powerUsers':
+        return 'Power Users';
+      case 'activeUsers':
+      default:
+        return 'Active Users';
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Active Users Trend</h2>
+        <h2 className="text-xl font-semibold mb-4">{getChartTitle()}</h2>
         <div className="text-center text-gray-500 py-8">Loading chart...</div>
       </div>
     );
@@ -35,7 +71,7 @@ const ActiveUsersChart: React.FC<ActiveUsersChartProps> = ({
   if (error) {
     return (
       <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Active Users Trend</h2>
+        <h2 className="text-xl font-semibold mb-4">{getChartTitle()}</h2>
         <div className="text-center text-red-500 py-8">{error}</div>
       </div>
     );
@@ -44,7 +80,7 @@ const ActiveUsersChart: React.FC<ActiveUsersChartProps> = ({
   if (!chartData) {
     return (
       <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">Active Users Trend</h2>
+        <h2 className="text-xl font-semibold mb-4">{getChartTitle()}</h2>
         <div className="text-center text-gray-500 py-8">No chart data available</div>
       </div>
     );
@@ -52,13 +88,13 @@ const ActiveUsersChart: React.FC<ActiveUsersChartProps> = ({
 
   return (
     <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-      <h2 className="text-xl font-semibold mb-4">Active Users Trend</h2>
+      <h2 className="text-xl font-semibold mb-4">{getChartTitle()}</h2>
       <div className="h-64">
         <Line
           data={{
             labels: chartData.labels,
             datasets: [{
-              label: 'Active Users',
+              label: getDatasetLabel(),
               data: chartData.data,
               borderColor: 'rgb(59, 130, 246)',
               backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -70,9 +106,31 @@ const ActiveUsersChart: React.FC<ActiveUsersChartProps> = ({
             maintainAspectRatio: false,
             plugins: {
               legend: { display: false },
-              title: { display: false }
+              title: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (context: TooltipItem<'line'>) => {
+                    const label = getDatasetLabel();
+                    return `${label}: ${context.parsed.y}`;
+                  }
+                }
+              }
             },
             scales: {
+              x: {
+                ticks: {
+                  callback: function(value) {
+                    // Try to format as 'EEE - MMM d' (e.g., 'Mon - Jun 10')
+                    const label = chartData.labels?.[value as number];
+                    if (!label) return '';
+                    try {
+                      return format(parseISO(label), 'EEE - MMM d');
+                    } catch {
+                      return label;
+                    }
+                  }
+                }
+              },
               y: { beginAtZero: true }
             }
           }}

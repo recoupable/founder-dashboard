@@ -178,9 +178,6 @@ export async function GET(request: Request) {
     // Map messages to the expected format but set a default role since it doesn't exist in DB
     // Also properly handle the JSONB content field
     let messages = messagesData ? messagesData.map(msg => {
-      // Log the content for debugging
-      console.log('API: Message content structure:', JSON.stringify(msg.content, null, 2));
-      
       // Extract the appropriate text from the JSONB content field
       let messageText = 'Empty message';
       let messageRole = 'assistant';
@@ -311,7 +308,6 @@ export async function GET(request: Request) {
       messages: messages
     };
     
-    console.log('API: Successfully retrieved conversation detail with', messages.length, 'messages');
     return NextResponse.json(conversationDetail);
   } catch (error) {
     console.error('API: Error processing request:', error);
