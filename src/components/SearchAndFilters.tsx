@@ -20,10 +20,10 @@ const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
   onTimeFilterChange
 }) => {
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 mb-12">
       {/* Clean Page Header with Master Time Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">User Conversations</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Product Usage</h1>
         
         {/* Master Time Filter */}
         <div className="flex items-center gap-4">

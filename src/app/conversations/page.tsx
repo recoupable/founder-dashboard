@@ -7,7 +7,7 @@ import type { ConversationFilters, ConversationListItem, ConversationDetail } fr
 
 import { createClient } from '@supabase/supabase-js';
 
-import { Line } from 'react-chartjs-2';
+
 
 import annotationPlugin from 'chartjs-plugin-annotation';
 import {
@@ -36,7 +36,7 @@ ChartJS.register(
 );
 
 import { getDateRangeForFilter, getProfileCompleteness } from '@/lib/utils';
-import type { ChartDataset, ApiChartDataset, MyChartData } from '@/lib/types';
+
 
 import Modal from '@/components/Modal';
 
@@ -93,7 +93,7 @@ export default function ConversationsPage() {
   const [leaderboardSort, setLeaderboardSort] = useState('consistency');
   const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
   const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
-  const [refreshChartToggle, setRefreshChartToggle] = useState(false); // To trigger re-fetch
+
 
   // Active Users state
   const [activeUsersData, setActiveUsersData] = useState({
@@ -225,10 +225,7 @@ export default function ConversationsPage() {
   // Leaderboard pagination state
 
 
-  const [showChart, setShowChart] = useState(false);
-  const [chartData, setChartData] = useState<MyChartData | null>(null);
-  const [chartLoading, setChartLoading] = useState(false);
-  const [chartError, setChartError] = useState<string | null>(null);
+
 
   // State for Annotation Modal
   const [showAnnotationModal, setShowAnnotationModal] = useState(false);
@@ -561,41 +558,7 @@ export default function ConversationsPage() {
       });
   }, [timeFilter]);
 
-  useEffect(() => {
-    if (!showChart) return;
-    setChartLoading(true);
-    setChartError(null);
-    fetch(`/api/chart-data?timeframe=allTimeWeekly&excludeTest=${excludeTestEmails}`)
-      .then(res => res.json())
-      .then(apiData => {
-        console.log('[DEBUG] Chart Data from API:', apiData);
 
-        // Use the ApiChartDataset interface for typing ds
-        const transformedDatasets: ChartDataset[] = (apiData.datasets || []).map((ds: ApiChartDataset) => ({
-          label: ds.label,
-          borderColor: ds.borderColor,
-          backgroundColor: ds.backgroundColor,
-          data: (ds.data || []).map((value: number, index: number) => ({
-            x: apiData.rawDates[index], 
-            y: value,
-          })),
-        }));
-
-        const chartDataPayload: MyChartData = {
-          rawDates: apiData.rawDates || [], 
-          datasets: transformedDatasets,
-          annotations: apiData.annotations || [],
-        };
-
-        setChartData(chartDataPayload);
-        setChartLoading(false);
-      })
-      .catch(err => {
-        console.error('Failed to load chart data:', err);
-        setChartError('Failed to load chart data');
-        setChartLoading(false);
-      });
-  }, [showChart, excludeTestEmails, refreshChartToggle]);
 
   const handleSaveAnnotation = async () => {
     if (!annotationModalDate || !annotationModalDescription) {
@@ -622,7 +585,6 @@ export default function ConversationsPage() {
       }
       setShowAnnotationModal(false);
       setAnnotationModalDescription(''); // Clear description for next time
-      setRefreshChartToggle(prev => !prev); // Trigger chart refresh
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unknown error occurred';
       setSaveAnnotationError(message);
@@ -1089,245 +1051,65 @@ export default function ConversationsPage() {
 
   return (
     <main className="p-4 sm:p-8">
-      {/* Toggle button for cards/chart */}
-      <div className="mb-8">
-        <div className="flex justify-end mb-2">
-          <button
-            type="button"
-            onClick={() => setShowChart(s => !s)}
-            className="p-2 rounded-full border hover:bg-gray-100"
-            title={showChart ? 'Show summary cards' : 'Show chart'}
-          >
-            {showChart ? 'Cards' : 'Chart'}
-          </button>
-        </div>
-        {showChart ? (
-          <div className="bg-white rounded-2xl shadow-md p-6 max-w-4xl mx-auto">
-            <div className="flex items-center mb-4 gap-4">
-              <h2 className="text-2xl font-bold">Product Usage</h2>
-            </div>
-            {chartLoading ? (
-              <div className="text-center text-gray-500 py-8">Loading chart...</div>
-            ) : chartError ? (
-              <div className="text-center text-red-500 py-8">{chartError}</div>
-            ) : chartData ? (
-              <Line
-                data={{
-                  datasets: chartData.datasets.filter((ds: ChartDataset) => ds.label === 'Messages Sent' || ds.label === 'Segment Reports'),
-                }}
-                options={{
-                  responsive: true,
-                  onClick: (event, elements) => {
-                    if (elements.length > 0 && chartData && chartData.rawDates) {
-                      const elementIndex = elements[0].index;
-                      const clickedISODate = chartData.rawDates[elementIndex];
-                      if (clickedISODate) {
-                        // Convert ISO date string to YYYY-MM-DD for the modal
-                        // The ISO string from rawDates will be like "2024-02-09T00:00:00.000Z" or similar
-                        const datePart = clickedISODate.split('T')[0];
-                        setAnnotationModalDate(datePart);
-                        setAnnotationModalDescription(''); // Clear previous description
-                        setSaveAnnotationError(null); // Clear previous error
-                        setShowAnnotationModal(true);
-                      }
-                    }
-                  },
-                  plugins: {
-                    legend: { display: true },
-                    title: { display: false },
-                    tooltip: {
-                      callbacks: {
-                        title: function(tooltipItems) {
-                          if (tooltipItems.length > 0) {
-                            const date = tooltipItems[0].parsed?.x;
-                            if (date) {
-                              const d = new Date(date);
-                              const sunday = new Date(d);
-                              sunday.setDate(d.getDate() - d.getDay());
-                              return "Week of " + sunday.toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
-                            }
-                          }
-                          return '';
-                        },
-                        label: function(tooltipItem) {
-                          let label = tooltipItem.dataset.label || '';
-                          if (label) {
-                            label += ': ';
-                          }
-                          if (tooltipItem.parsed.y !== null) {
-                            label += tooltipItem.parsed.y;
-                          }
-                          if (tooltipItem.dataset.label === 'Messages Sent' || tooltipItem.dataset.label === 'Segment Reports') {
-                            label += ' (weekly)';
-                          }
-                          return label;
-                        }
-                      }
-                    },
-                    annotation: {
-                      annotations: chartData.annotations && chartData.datasets.length > 0 ? chartData.annotations.map(annotation => {
-                        if (annotation.event_description) {
-                            // console.log('[DEBUG] Event Description for Label:', annotation.event_description);
-                            
-                            let yPosition = 15; // Default yPosition, will be overwritten
-                            const baseYWhenDataIsZero = 10; // Center label at Y=10 if data is at/near zero
-                            const offsetFromLineForCenter = 5; // Center label 5 units above data line if data is higher
+      <div className="max-w-7xl mx-auto">
+        <SearchAndFilters
+          timeFilter={timeFilter}
+          onTimeFilterChange={setTimeFilter}
+        />
 
-                            try {
-                                const eventDateString = annotation.event_date.split('T')[0];
-                                const eventDateObj = new Date(eventDateString + 'T00:00:00.000Z');
+        {/* Analytics Metrics Cards */}
+        <MetricsSection
+          activeUsersData={activeUsersData}
+          powerUsersData={powerUsersData}
+          pmfSurveyReadyData={pmfSurveyReadyData}
+          timeFilter={timeFilter}
+          onMetricClick={handleMetricClick}
+          selectedMetric={selectedMetric}
+        />
 
-                                // Determine the start of the week (Sunday) for the event's date (UTC)
-                                const eventWeekStart = new Date(eventDateObj);
-                                eventWeekStart.setUTCDate(eventDateObj.getUTCDate() - eventDateObj.getUTCDay());
-                                eventWeekStart.setUTCHours(0, 0, 0, 0);
-                                const eventWeekStartISO = eventWeekStart.toISOString();
+        <ActiveUsersChart
+          chartData={(() => {
+            if (trendUser) return userTrendData;
+            switch (selectedMetric) {
+              case 'pmfSurveyReady':
+                return pmfSurveyReadyChartData;
+              case 'powerUsers':
+                return powerUsersChartData;
+              case 'activeUsers':
+              default:
+                return activeUsersChartData;
+            }
+          })()}
+          loading={(() => {
+            if (trendUser) return userTrendLoading;
+            switch (selectedMetric) {
+              case 'pmfSurveyReady':
+                return pmfSurveyReadyChartLoading;
+              case 'powerUsers':
+                return powerUsersChartLoading;
+              case 'activeUsers':
+              default:
+                return activeUsersChartLoading;
+            }
+          })()}
+          error={(() => {
+            if (trendUser) return userTrendError;
+            switch (selectedMetric) {
+              case 'pmfSurveyReady':
+                return pmfSurveyReadyChartError;
+              case 'powerUsers':
+                return powerUsersChartError;
+              case 'activeUsers':
+              default:
+                return activeUsersChartError;
+            }
+          })()}
+          isUserTrend={!!trendUser}
+          metricType={trendUser ? 'activeUsers' : selectedMetric || 'activeUsers'}
+        />
 
-                                const dataPointIndex = chartData.rawDates.findIndex(rawDateISO => rawDateISO === eventWeekStartISO);
-
-                                if (dataPointIndex !== -1) {
-                                    let maxValueAtPoint = 0;
-                                    const messagesDataset = chartData.datasets.find(ds => ds.label === 'Messages Sent');
-                                    const reportsDataset = chartData.datasets.find(ds => ds.label === 'Segment Reports');
-
-                                    if (messagesDataset && messagesDataset.data[dataPointIndex] && typeof messagesDataset.data[dataPointIndex].y === 'number') {
-                                        maxValueAtPoint = Math.max(maxValueAtPoint, messagesDataset.data[dataPointIndex].y);
-                                    }
-                                    if (reportsDataset && reportsDataset.data[dataPointIndex] && typeof reportsDataset.data[dataPointIndex].y === 'number') {
-                                        maxValueAtPoint = Math.max(maxValueAtPoint, reportsDataset.data[dataPointIndex].y);
-                                    }
-
-                                    if (maxValueAtPoint <= 1) { // If data is at or very near the X-axis
-                                        yPosition = baseYWhenDataIsZero;
-                                    } else {
-                                        yPosition = maxValueAtPoint + offsetFromLineForCenter;
-                                    }
-                                } else {
-                                    console.warn(`No matching weekly data point for event on ${eventDateString} (week start ${eventWeekStartISO}). Placing annotation at default Y.`);
-                                    yPosition = baseYWhenDataIsZero; 
-                                }
-                            } catch (e) {
-                                console.error("Error calculating yPosition for annotation:", e, annotation);
-                                yPosition = baseYWhenDataIsZero; // Fallback
-                            }
-
-                            return {
-                                type: 'label',
-                                xValue: annotation.event_date,
-                                yValue: yPosition, 
-                                backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                                color: 'white', // Font color for the label text
-                                content: annotation.event_description,
-                                font: {
-                                    size: 10, // Slightly smaller font for a cleaner look
-                                    weight: 'normal' as const
-                                },
-                                padding: { top: 3, bottom: 3, left: 5, right: 5 }, // Adjust padding around the text
-                                cornerRadius: 3, // Rounded corners for the label background
-                            };
-                        } 
-                        // This is a daily marker (no description) - rendered as a faint line
-                        return {
-                            type: 'line',
-                            scaleID: 'x',
-                            value: annotation.event_date,
-                            borderColor: 'rgba(200, 200, 200, 0.3)',
-                            borderWidth: 1,
-                        };
-                      }) : []
-                    }
-                  },
-                  scales: {
-                    x: {
-                      type: 'time',
-                      time: {
-                        unit: 'week',
-                        tooltipFormat: 'MMM d, yyyy',
-                        displayFormats: {
-                          week: 'MMM d',
-                          day: 'MMM d'
-                        }
-                      },
-                      grid: {
-                        // drawOnChartArea: false,
-                      },
-                      ticks: {
-                        // major: {
-                        //   enabled: true
-                        // },
-                        // autoSkip: true,
-                        // maxTicksLimit: 10
-                      }
-                    },
-                    y: {
-                      beginAtZero: true,
-                      grace: '5%' // Add 5% padding to the top of the Y-axis
-                    }
-                  }
-                }}
-              />
-            ) : null}
-          </div>
-        ) : (
-          <div className="max-w-7xl mx-auto">
-            <SearchAndFilters
-              timeFilter={timeFilter}
-              onTimeFilterChange={setTimeFilter}
-            />
-
-            {/* Analytics Metrics Cards */}
-            <MetricsSection
-              activeUsersData={activeUsersData}
-              powerUsersData={powerUsersData}
-              pmfSurveyReadyData={pmfSurveyReadyData}
-              timeFilter={timeFilter}
-              onMetricClick={handleMetricClick}
-              selectedMetric={selectedMetric}
-            />
-
-            <ActiveUsersChart
-              chartData={(() => {
-                if (trendUser) return userTrendData;
-                switch (selectedMetric) {
-                  case 'pmfSurveyReady':
-                    return pmfSurveyReadyChartData;
-                  case 'powerUsers':
-                    return powerUsersChartData;
-                  case 'activeUsers':
-                  default:
-                    return activeUsersChartData;
-                }
-              })()}
-              loading={(() => {
-                if (trendUser) return userTrendLoading;
-                switch (selectedMetric) {
-                  case 'pmfSurveyReady':
-                    return pmfSurveyReadyChartLoading;
-                  case 'powerUsers':
-                    return powerUsersChartLoading;
-                  case 'activeUsers':
-                  default:
-                    return activeUsersChartLoading;
-                }
-              })()}
-              error={(() => {
-                if (trendUser) return userTrendError;
-                switch (selectedMetric) {
-                  case 'pmfSurveyReady':
-                    return pmfSurveyReadyChartError;
-                  case 'powerUsers':
-                    return powerUsersChartError;
-                  case 'activeUsers':
-                  default:
-                    return activeUsersChartError;
-                }
-              })()}
-              isUserTrend={!!trendUser}
-              metricType={trendUser ? 'activeUsers' : selectedMetric || 'activeUsers'}
-            />
-
-            {/* User Leaderboard (Time Filtered) */}
-            <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
+        {/* User Leaderboard (Time Filtered) */}
+          <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-2">
                 <h2 className="text-2xl font-bold">User Leaderboard</h2>
                 <div className="flex gap-2 items-center flex-wrap">
@@ -2160,8 +1942,6 @@ export default function ConversationsPage() {
               </div>
             </div>
           </div>
-        )}
-      </div>
       
       {/* Test Email Management Popup */}
       <Modal isOpen={showTestEmailPopup} onClose={() => setShowTestEmailPopup(false)}>
