@@ -120,20 +120,31 @@ export async function GET(request: Request) {
       // Get allowed rooms (excluding test artist rooms)
       console.log('Active Users API: Querying rooms for', allowedAccountIds.length, 'allowed accounts');
       
-      const { data: allowedRoomsData, error: roomsError } = await supabaseAdmin
-        .from('rooms')
-        .select('id, artist_id')
-        .in('account_id', allowedAccountIds);
+      // Batch the room query to avoid Supabase .in() limits
+      const batchSize = 100; // Safe batch size for Supabase .in() operations
+      const allRoomsData = [];
       
-      if (roomsError) {
-        console.error('Active Users API: Error querying rooms:', roomsError);
+      for (let i = 0; i < allowedAccountIds.length; i += batchSize) {
+        const batch = allowedAccountIds.slice(i, i + batchSize);
+        console.log(`Active Users API: Querying rooms batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(allowedAccountIds.length/batchSize)} with ${batch.length} accounts`);
+        
+        const { data: batchRoomsData, error: roomsError } = await supabaseAdmin
+          .from('rooms')
+          .select('id, artist_id')
+          .in('account_id', batch);
+        
+        if (roomsError) {
+          console.error('Active Users API: Error querying rooms batch:', roomsError);
+        } else if (batchRoomsData) {
+          allRoomsData.push(...batchRoomsData);
+        }
       }
       
-      console.log('Active Users API: Raw rooms query returned:', allowedRoomsData?.length || 0, 'rooms');
+      console.log('Active Users API: Raw rooms query returned:', allRoomsData.length, 'rooms');
       
-      allowedRoomIds = allowedRoomsData?.filter(room => !testArtistAccountIds.has(room.artist_id))?.map(room => room.id) || [];
+      allowedRoomIds = allRoomsData.filter(room => !testArtistAccountIds.has(room.artist_id))?.map(room => room.id) || [];
       
-      const filteredOutRooms = (allowedRoomsData?.length || 0) - allowedRoomIds.length;
+      const filteredOutRooms = allRoomsData.length - allowedRoomIds.length;
       console.log('Active Users API: Filtered out', filteredOutRooms, 'rooms with test artists');
       
       console.log('Active Users API: Allowed accounts:', allowedAccountIds.length, 'Allowed rooms:', allowedRoomIds.length);
