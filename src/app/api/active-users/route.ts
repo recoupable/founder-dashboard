@@ -115,14 +115,26 @@ export async function GET(request: Request) {
         .eq('name', 'sweetman_eth');
       
       const testArtistAccountIds = new Set(testArtistAccounts?.map(account => account.id) || []);
+      console.log('Active Users API: Test artist account IDs:', testArtistAccountIds.size);
       
       // Get allowed rooms (excluding test artist rooms)
-      const { data: allowedRoomsData } = await supabaseAdmin
+      console.log('Active Users API: Querying rooms for', allowedAccountIds.length, 'allowed accounts');
+      
+      const { data: allowedRoomsData, error: roomsError } = await supabaseAdmin
         .from('rooms')
         .select('id, artist_id')
         .in('account_id', allowedAccountIds);
       
+      if (roomsError) {
+        console.error('Active Users API: Error querying rooms:', roomsError);
+      }
+      
+      console.log('Active Users API: Raw rooms query returned:', allowedRoomsData?.length || 0, 'rooms');
+      
       allowedRoomIds = allowedRoomsData?.filter(room => !testArtistAccountIds.has(room.artist_id))?.map(room => room.id) || [];
+      
+      const filteredOutRooms = (allowedRoomsData?.length || 0) - allowedRoomIds.length;
+      console.log('Active Users API: Filtered out', filteredOutRooms, 'rooms with test artists');
       
       console.log('Active Users API: Allowed accounts:', allowedAccountIds.length, 'Allowed rooms:', allowedRoomIds.length);
     }
@@ -147,6 +159,8 @@ export async function GET(request: Request) {
       
       if (excludeTest && allowedRoomIds.length > 0) {
         messageQuery = messageQuery.in('room_id', allowedRoomIds);
+      } else if (excludeTest && allowedRoomIds.length === 0) {
+        console.log('Active Users API: DEBUG - No allowed rooms found, but proceeding with unfiltered query to debug');
       }
       
       const { data: messageData } = await messageQuery;
@@ -162,7 +176,17 @@ export async function GET(request: Request) {
             .in('id', activeRoomIds);
           
           if (roomsData) {
-            roomsData.forEach(room => activeUserIds.add(room.account_id));
+            // If excluding test accounts, filter room owners by allowed accounts
+            if (excludeTest && allowedAccountIds.length > 0) {
+              roomsData.forEach(room => {
+                if (allowedAccountIds.includes(room.account_id)) {
+                  activeUserIds.add(room.account_id);
+                }
+              });
+              console.log('Active Users API: Users after account filtering:', activeUserIds.size);
+            } else {
+              roomsData.forEach(room => activeUserIds.add(room.account_id));
+            }
           }
         }
       }

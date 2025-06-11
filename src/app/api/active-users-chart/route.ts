@@ -214,7 +214,16 @@ export async function GET(request: Request) {
             .in('id', activeRoomIds);
           
           if (roomsData) {
-            roomsData.forEach(room => activeUserIds.add(room.account_id));
+            // If excluding test accounts, filter room owners by allowed accounts
+            if (excludeTest && allowedAccountIds.length > 0) {
+              roomsData.forEach(room => {
+                if (allowedAccountIds.includes(room.account_id)) {
+                  activeUserIds.add(room.account_id);
+                }
+              });
+            } else {
+              roomsData.forEach(room => activeUserIds.add(room.account_id));
+            }
           }
         }
       }
