@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     console.log('Active Users API: Calculating active users for period:', timeFilter);
     console.log('Active Users API: Request timestamp:', new Date().toISOString());
     
-    // Calculate date ranges based on time filter
+    // Calculate date ranges based on time filter (always use UTC for consistency)
     const now = new Date();
     const getDateRange = (filter: string) => {
       switch (filter) {
@@ -18,20 +18,16 @@ export async function GET(request: Request) {
           const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
           return { start: last24Hours, end: now };
         case 'Last 7 Days':
-          const last7Days = new Date(now);
-          last7Days.setDate(now.getDate() - 7);
+          const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
           return { start: last7Days, end: now };
         case 'Last 30 Days':
-          const last30Days = new Date(now);
-          last30Days.setDate(now.getDate() - 30);
+          const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
           return { start: last30Days, end: now };
         case 'Last 3 Months':
-          const last3Months = new Date(now);
-          last3Months.setMonth(now.getMonth() - 3);
+          const last3Months = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
           return { start: last3Months, end: now };
         case 'Last 12 Months':
-          const last12Months = new Date(now);
-          last12Months.setFullYear(now.getFullYear() - 1);
+          const last12Months = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
           return { start: last12Months, end: now };
         default: // All Time or any unrecognized filter
           return { start: null, end: now };
