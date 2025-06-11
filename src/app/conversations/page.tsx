@@ -223,7 +223,7 @@ export default function ConversationsPage() {
   const [bulkSyncing, setBulkSyncing] = useState(false);
 
   // Leaderboard pagination state
-  const [leaderboardLimit, setLeaderboardLimit] = useState(20);
+
 
   const [showChart, setShowChart] = useState(false);
   const [chartData, setChartData] = useState<MyChartData | null>(null);
@@ -1469,10 +1469,8 @@ export default function ConversationsPage() {
                     }
                     
                     // Store total count before pagination
-                    const totalActiveUsers = users.length;
-                    
-                    // Apply pagination limit
-                    const visibleUsers = users.slice(0, leaderboardLimit);
+                    // Show all users
+                    const visibleUsers = users;
                     
                     return (
                       <div className="space-y-3">
@@ -2112,17 +2110,7 @@ export default function ConversationsPage() {
                       </div>
                         ))}
 
-                        {/* Simple Load More */}
-                        {totalActiveUsers > leaderboardLimit && (
-                          <div className="text-center mt-4">
-                            <button
-                              onClick={() => setLeaderboardLimit(totalActiveUsers)}
-                              className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                            >
-                              Show all {totalActiveUsers} users (+{totalActiveUsers - leaderboardLimit} more)
-                            </button>
-                          </div>
-                        )}
+
                       </div>
                     );
                   })()}
