@@ -229,7 +229,6 @@ export default function ConversationsPage() {
 
   // State for Annotation Modal
   const [showAnnotationModal, setShowAnnotationModal] = useState(false);
-  const [annotationModalDate, setAnnotationModalDate] = useState(''); // YYYY-MM-DD
   const [annotationModalDescription, setAnnotationModalDescription] = useState('');
   const [isSavingAnnotation, setIsSavingAnnotation] = useState(false);
 
@@ -561,8 +560,8 @@ export default function ConversationsPage() {
 
 
   const handleSaveAnnotation = async () => {
-    if (!annotationModalDate || !annotationModalDescription) {
-      setSaveAnnotationError('Date and description are required.');
+    if (!annotationModalDescription) {
+      setSaveAnnotationError('Description is required.');
       return;
     }
     setIsSavingAnnotation(true);
@@ -574,7 +573,7 @@ export default function ConversationsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          event_date: annotationModalDate,
+          event_date: new Date().toISOString().split('T')[0], // Use today's date
           event_description: annotationModalDescription,
           chart_type: 'messages_reports_over_time' // Ensure this matches your expected chart_type
         }),
@@ -2016,7 +2015,7 @@ export default function ConversationsPage() {
       {/* Annotation Modal */}
       <Modal isOpen={showAnnotationModal} onClose={() => setShowAnnotationModal(false)}>
         <div className="bg-white rounded-lg p-6 max-w-md w-full">
-          <h3 className="text-lg font-semibold mb-4">Add Annotation for {annotationModalDate}</h3>
+          <h3 className="text-lg font-semibold mb-4">Add Annotation</h3>
           <textarea
             className="w-full p-2 border rounded mb-4 h-24"
             placeholder="Event description..."
