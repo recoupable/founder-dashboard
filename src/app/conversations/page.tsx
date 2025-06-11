@@ -1548,29 +1548,15 @@ export default function ConversationsPage() {
                                 {(userConsistency[user.email] || 0)} days active
                               </span>
                             )}
-                            {/* Retention trend badge - only show when sorting by activity growth */}
-                            {leaderboardSort === 'retention' && leaderboardTrends[user.email] && !leaderboardTrends[user.email].isNew && !leaderboardTrends[user.email].isReactivated && (
+                            {/* Activity growth badge - only show when sorting by activity growth */}
+                            {leaderboardSort === 'retention' && leaderboardTrends[user.email] && leaderboardTrends[user.email].percentChange !== null && (
                               <span
                                 className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center
                                   ${leaderboardTrends[user.email].percentChange! > 0 ? 'bg-green-50 text-green-700 border border-green-200' : leaderboardTrends[user.email].percentChange! < 0 ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-gray-50 text-gray-600 border border-gray-200'}`}
-                                title={`Change vs previous period: ${leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}${leaderboardTrends[user.email].percentChange}%\nCurrent: ${leaderboardTrends[user.email].current} actions\nPrevious: ${leaderboardTrends[user.email].previous} actions`}
+                                title={`Change vs previous period: ${leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}${leaderboardTrends[user.email].percentChange}%\nCurrent: ${leaderboardTrends[user.email].currentPeriodActions} actions\nPrevious: ${leaderboardTrends[user.email].previousPeriodActions} actions${leaderboardTrends[user.email].isNew ? '\n(New user this period)' : ''}`}
                               >
                                 {leaderboardTrends[user.email].percentChange! > 0 ? '▲' : leaderboardTrends[user.email].percentChange! < 0 ? '▼' : ''}
                                 {leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}{leaderboardTrends[user.email].percentChange}%
-                              </span>
-                            )}
-                            {/* New user badge - only show when sorting by activity growth */}
-                            {leaderboardSort === 'retention' && leaderboardTrends[user.email] && leaderboardTrends[user.email].isNew && (
-                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center bg-gray-50 text-gray-600 border border-gray-200"
-                                title="New user - first activity in this period">
-                                New
-                              </span>
-                            )}
-                            {/* Reactivated user badge - only show when sorting by activity growth */}
-                            {leaderboardSort === 'retention' && leaderboardTrends[user.email] && leaderboardTrends[user.email].isReactivated && (
-                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center bg-gray-50 text-gray-600 border border-gray-200"
-                                title="Reactivated user - returned after being inactive">
-                                Reactivated
                               </span>
                             )}
                             {/* Actions/messages/reports number */}
