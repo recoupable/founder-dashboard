@@ -179,9 +179,9 @@ export default function ConversationsPage() {
     conversation_themes: string[];
     growth_opportunities: string[];
   }
-  const [userAnalysisLoading, setUserAnalysisLoading] = useState<Record<string, boolean>>({});
   const [userAnalysisResults, setUserAnalysisResults] = useState<Record<string, UserAnalysis>>({});
   const [userAnalysisErrors, setUserAnalysisErrors] = useState<Record<string, string>>({});
+  const [userAnalysisLoading, setUserAnalysisLoading] = useState<Record<string, boolean>>({});
 
   // Add state for user activity details
   interface ArtistUsage {
@@ -220,12 +220,6 @@ export default function ConversationsPage() {
   }>>({});
   const [editingProfile, setEditingProfile] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState<string | null>(null);
-  const [bulkSyncing, setBulkSyncing] = useState(false);
-
-  // Leaderboard pagination state
-
-
-
 
   // State for Annotation Modal
   const [showAnnotationModal, setShowAnnotationModal] = useState(false);
@@ -244,8 +238,20 @@ export default function ConversationsPage() {
   // Add state to store per-user consistency (number of active days in period)
   const [userConsistency, setUserConsistency] = useState<Record<string, number>>({});
 
+  // Add state for user error counts (last 24 hours)
+  const [userErrorCounts, setUserErrorCounts] = useState<Record<string, number>>({});
+  const [userErrorsLoading, setUserErrorsLoading] = useState(false);
+
   // Add state for consistency loading
   const [consistencyLoading, setConsistencyLoading] = useState(false);
+
+  // Add state for error data
+  const [errorData, setErrorData] = useState<{totalErrors: number, errorBreakdown: Record<string, number>, errorRate: number}>({ 
+    totalErrors: 0, 
+    errorBreakdown: {},
+    errorRate: 0
+  })
+  const [showErrorDropdown, setShowErrorDropdown] = useState(false)
 
   // Define testEmailFilteredConversations before any useEffect that uses it
   const testEmailFilteredConversations = conversations.filter(conv => {
@@ -285,6 +291,204 @@ export default function ConversationsPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, excludeTestEmails, timeFilter, selectedUserFilter]);
+
+  // Fetch error data when timeFilter or user data changes
+  useEffect(() => {
+    const fetchErrorData = async () => {
+      try {
+        const days = timeFilter === 'Last 24 Hours' ? 1 : timeFilter === 'Last 7 Days' ? 7 : 30
+        
+        // Fetch error data
+        const errorResponse = await fetch(`/api/error-logs?days=${days}`)
+        const errorData = await errorResponse.json()
+        
+        // Use the same total actions count that's displayed in the UI pill
+        const totalMessages = (() => {
+          // Create combined user data (same logic as the display pill)
+          const userMap = new Map<string, { email: string; messages: number; reports: number; totalActivity: number }>();
+          
+          // Add message counts
+          Object.entries(messagesByUser).forEach(([email, count]) => {
+            if (!userMap.has(email)) {
+              userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+            }
+            const user = userMap.get(email)!;
+            user.messages = count;
+            user.totalActivity += count;
+          });
+          
+          // Add segment report counts
+          Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+            if (!userMap.has(email)) {
+              userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+            }
+            const user = userMap.get(email)!;
+            user.reports = count;
+            user.totalActivity += count;
+          });
+          
+          // Convert to array and filter (same as display logic)
+          let users = Array.from(userMap.values());
+          
+          if (excludeTestEmails) {
+            users = users.filter(user => {
+              if (testEmails.includes(user.email)) return false;
+              if (user.email.includes('@example.com')) return false;
+              if (user.email.includes('+')) return false;
+              return true;
+            });
+          }
+          
+          // Filter by activity (only active users)
+          users = users.filter(user => user.totalActivity > 0);
+          
+          // Sum total actions (messages + reports) from active users
+          return users.reduce((sum, user) => sum + user.totalActivity, 0);
+        })()
+        
+        const totalErrors = errorData.totalErrors || 0
+        const errorRate = totalMessages > 0 ? (totalErrors / totalMessages) * 100 : 0
+        
+        if (errorResponse.ok) {
+          setErrorData({
+            totalErrors: totalErrors,
+            errorBreakdown: errorData.errorBreakdown || {},
+            errorRate: Math.round(errorRate * 100) / 100 // Round to 2 decimal places
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching error data:', error)
+      }
+    }
+    
+    fetchErrorData()
+  }, [timeFilter, messagesByUser, segmentReportsByUser, excludeTestEmails, testEmails])
+
+  // Auto-refresh error data every 2 minutes (since data comes from Supabase now)
+  useEffect(() => {
+    const fetchErrorData = async () => {
+      try {
+        const days = timeFilter === 'Last 24 Hours' ? 1 : timeFilter === 'Last 7 Days' ? 7 : 30
+        
+        // Fetch error data
+        const errorResponse = await fetch(`/api/error-logs?days=${days}`)
+        const errorData = await errorResponse.json()
+        
+        // Use the same total actions count that's displayed in the UI pill
+        const totalMessages = (() => {
+          // Create combined user data (same logic as the display pill)
+          const userMap = new Map<string, { email: string; messages: number; reports: number; totalActivity: number }>();
+          
+          // Add message counts
+          Object.entries(messagesByUser).forEach(([email, count]) => {
+            if (!userMap.has(email)) {
+              userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+            }
+            const user = userMap.get(email)!;
+            user.messages = count;
+            user.totalActivity += count;
+          });
+          
+          // Add segment report counts
+          Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+            if (!userMap.has(email)) {
+              userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+            }
+            const user = userMap.get(email)!;
+            user.reports = count;
+            user.totalActivity += count;
+          });
+          
+          // Convert to array and filter (same as display logic)
+          let users = Array.from(userMap.values());
+          
+          if (excludeTestEmails) {
+            users = users.filter(user => {
+              if (testEmails.includes(user.email)) return false;
+              if (user.email.includes('@example.com')) return false;
+              if (user.email.includes('+')) return false;
+              return true;
+            });
+          }
+          
+          // Filter by activity (only active users)
+          users = users.filter(user => user.totalActivity > 0);
+          
+          // Sum total actions (messages + reports) from active users
+          return users.reduce((sum, user) => sum + user.totalActivity, 0);
+        })()
+        
+        const totalErrors = errorData.totalErrors || 0
+        const errorRate = totalMessages > 0 ? (totalErrors / totalMessages) * 100 : 0
+        
+        if (errorResponse.ok) {
+          setErrorData({
+            totalErrors: totalErrors,
+            errorBreakdown: errorData.errorBreakdown || {},
+            errorRate: Math.round(errorRate * 100) / 100 // Round to 2 decimal places
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching error data:', error)
+      }
+    }
+    
+    // Set up interval to fetch error data every 2 minutes (120,000 ms) - faster since it's from DB
+    const interval = setInterval(fetchErrorData, 2 * 60 * 1000)
+    
+    // Clean up interval on component unmount
+    return () => clearInterval(interval)
+  }, [timeFilter, messagesByUser, segmentReportsByUser, excludeTestEmails, testEmails])
+
+  // Close error dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showErrorDropdown) {
+        const target = event.target as HTMLElement
+        if (!target.closest('.error-dropdown-container')) {
+          setShowErrorDropdown(false)
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showErrorDropdown])
+
+  // Fetch user error counts for last 24 hours
+  useEffect(() => {
+    const fetchUserErrors = async () => {
+      try {
+        setUserErrorsLoading(true);
+        
+        // Fetch errors from last 24 hours
+        const response = await fetch('/api/error-logs?days=1');
+        const data = await response.json();
+        
+        if (response.ok && data.errors) {
+          // Count errors by email
+          const errorCountsByEmail: Record<string, number> = {};
+          data.errors.forEach((error: { user_email?: string }) => {
+            if (error.user_email) {
+              errorCountsByEmail[error.user_email] = (errorCountsByEmail[error.user_email] || 0) + 1;
+            }
+          });
+          
+          setUserErrorCounts(errorCountsByEmail);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user error counts:', error);
+      } finally {
+        setUserErrorsLoading(false);
+      }
+    };
+    
+    fetchUserErrors();
+    
+    // Refresh every 2 minutes
+    const interval = setInterval(fetchUserErrors, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [])
 
   React.useEffect(() => {
     async function fetchReports() {
@@ -884,39 +1088,6 @@ export default function ConversationsPage() {
     }
   };
 
-  // Function to bulk sync companies from sales dashboard
-  const bulkSyncCompanies = async () => {
-    try {
-      setBulkSyncing(true);
-      
-      const response = await fetch('/api/sync-user-companies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        console.log(`✅ Bulk sync complete: ${data.details.profilesUpdated} profiles updated`);
-        
-        // Refresh profiles for visible users to show updated data
-        const visibleEmails = Object.keys(userProfiles);
-        for (const email of visibleEmails) {
-          await loadUserProfile(email);
-        }
-        
-        alert(`Success! Synced company data for ${data.details.profilesUpdated} users.`);
-      } else {
-        alert('Sync failed: ' + data.error);
-      }
-    } catch (error) {
-      console.error('Error bulk syncing companies:', error);
-      alert('Sync failed due to an error.');
-    } finally {
-      setBulkSyncing(false);
-    }
-  };
-
   // Function to automatically run user analysis
   const runUserAnalysis = async (userEmail: string) => {
     // Don't run analysis if it's already loading or if we already have results
@@ -1107,12 +1278,148 @@ export default function ConversationsPage() {
           metricType={trendUser ? 'activeUsers' : selectedMetric || 'activeUsers'}
         />
 
+
+
         {/* User Leaderboard (Time Filtered) */}
           <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-2">
-                <h2 className="text-2xl font-bold">User Leaderboard</h2>
-                <div className="flex gap-2 items-center flex-wrap">
-                  <label htmlFor="leaderboard-filter" className="mr-2 font-medium text-sm">Filter:</label>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-2xl font-bold">User Leaderboard</h2>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-gray-600 bg-gray-50 px-3 py-1 rounded-full">
+                      {(() => {
+                        // Calculate total messages using the EXACT same logic as the leaderboard
+                        const userMap = new Map<string, { email: string; messages: number; reports: number; totalActivity: number }>();
+                        
+                        // Add message counts
+                        Object.entries(messagesByUser).forEach(([email, count]) => {
+                          if (!userMap.has(email)) {
+                            userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+                          }
+                          const user = userMap.get(email)!;
+                          user.messages = count;
+                          user.totalActivity += count;
+                        });
+                        
+                        // Add segment report counts
+                        Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+                          if (!userMap.has(email)) {
+                            userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
+                          }
+                          const user = userMap.get(email)!;
+                          user.reports = count;
+                          user.totalActivity += count;
+                        });
+                        
+                        // Convert to array and filter out test emails if needed
+                        let users = Array.from(userMap.values());
+                        
+                        if (excludeTestEmails) {
+                          users = users.filter(user => {
+                            if (testEmails.includes(user.email)) return false;
+                            if (user.email.includes('@example.com')) return false;
+                            if (user.email.includes('+')) return false;
+                            return true;
+                          });
+                        }
+                        
+                        // Filter by activity (only active users)
+                        users = users.filter(user => user.totalActivity > 0);
+                        
+                        // Sum total actions (messages + reports) from active users - matches error rate calculation
+                        const totalActions = users.reduce((sum, user) => sum + user.totalActivity, 0);
+                        return totalActions;
+                      })()} total actions
+                    </div>
+                    
+                    {/* Error Badge with Dropdown */}
+                    <div className="relative error-dropdown-container">
+                      <button
+                        onClick={() => setShowErrorDropdown(!showErrorDropdown)}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                          <span className="text-red-600 font-semibold">{errorData.totalErrors}</span>
+                          <span className="text-gray-500">errors</span>
+                        </div>
+                        <svg 
+                          className={`w-3 h-3 text-gray-400 transition-transform duration-200 ${showErrorDropdown ? 'rotate-180' : ''}`} 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {/* Compact Error Breakdown Dropdown */}
+                      {showErrorDropdown && (
+                        <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                          <div className="px-3 py-2 border-b border-gray-100">
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                                </svg>
+                                <span className="text-xs font-medium text-gray-700">Error Rate</span>
+                              </div>
+                              {/* Error Rate Display - aligned with tool count badges */}
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                (errorData.errorRate || 0) >= 5 ? 'bg-red-100 text-red-700' :
+                                (errorData.errorRate || 0) >= 2 ? 'bg-orange-100 text-orange-700' :
+                                (errorData.errorRate || 0) > 0 ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                {(errorData.errorRate || 0).toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="p-3">
+                            
+                            {/* Tool Breakdown */}
+                            {Object.keys(errorData.errorBreakdown).length > 0 ? (
+                              <div className="space-y-2">
+                                {Object.entries(errorData.errorBreakdown)
+                                  .sort(([,a], [,b]) => b - a) // Sort by count descending
+                                  .map(([tool, count], index) => (
+                                    <div key={tool} className="flex justify-between items-center text-xs hover:bg-gray-50 px-2 py-1.5 rounded transition-colors">
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${
+                                          index === 0 ? 'bg-red-500' : 
+                                          index === 1 ? 'bg-orange-500' : 
+                                          index === 2 ? 'bg-yellow-500' : 
+                                          'bg-gray-400'
+                                        }`}></div>
+                                        <span className="text-gray-700 font-medium">{tool.replace(/_/g, ' ')}</span>
+                                      </div>
+                                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                        count >= 4 ? 'bg-red-100 text-red-700' :
+                                        count >= 2 ? 'bg-orange-100 text-orange-700' :
+                                        'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {count}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            ) : (
+                              <div className="text-center py-4">
+                                <svg className="w-8 h-8 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <p className="text-xs text-gray-500">No errors found</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Filter and Sort Controls */}
+                <div className="flex gap-3 items-center flex-wrap">
                   <select
                     id="leaderboard-filter"
                     value={leaderboardFilter}
@@ -1124,7 +1431,6 @@ export default function ConversationsPage() {
                     <option value="pmf-ready">PMF Survey Ready</option>
                     <option value="power-users">Power Users</option>
                   </select>
-                  <label htmlFor="leaderboard-sort" className="ml-4 mr-2 font-medium text-sm">Sort by:</label>
                   <select
                     id="leaderboard-sort"
                     value={leaderboardSort}
@@ -1137,15 +1443,8 @@ export default function ConversationsPage() {
                     <option value="activity">Sort by All Actions</option>
                     <option value="retention">Sort by Activity Growth</option>
                     <option value="consistency">Sort by Consistency</option>
+                    <option value="errors">Sort by Errors</option>
                   </select>
-                  <button
-                    onClick={bulkSyncCompanies}
-                    disabled={bulkSyncing}
-                    className="ml-4 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Sync company data from sales dashboard based on email domains"
-                  >
-                    {bulkSyncing ? '⏳ Syncing...' : '🔄 Sync Companies'}
-                  </button>
                 </div>
               </div>
 
@@ -1245,6 +1544,13 @@ export default function ConversationsPage() {
                         );
                       }
                       users.sort((a, b) => userConsistency[b.email] - userConsistency[a.email]);
+                    } else if (leaderboardSort === 'errors') {
+                      // Sort by error count (highest errors first), users with no errors go to bottom
+                      users.sort((a, b) => {
+                        const aErrors = userErrorCounts[a.email] || 0;
+                        const bErrors = userErrorCounts[b.email] || 0;
+                        return bErrors - aErrors;
+                      });
                     } else {
                       users.sort((a, b) => b.totalActivity - a.totalActivity);
                     }
@@ -1297,6 +1603,25 @@ export default function ConversationsPage() {
                                     user.email
                                   )}
                                 </div>
+                                
+                                {/* Error badge - show if user has errors in last 24 hours */}
+                                {userErrorCounts[user.email] && userErrorCounts[user.email] > 0 && (
+                                  <span 
+                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium text-white ${
+                                      userErrorCounts[user.email] >= 3 ? 'bg-red-500' :
+                                      userErrorCounts[user.email] >= 2 ? 'bg-orange-500' :
+                                      'bg-yellow-500'
+                                    }`}
+                                    title={`${userErrorCounts[user.email]} error${userErrorCounts[user.email] > 1 ? 's' : ''} in last 24 hours`}
+                                  >
+                                    {userErrorCounts[user.email]}
+                                  </span>
+                                )}
+                                
+                                {/* Show loading indicator if errors are being fetched */}
+                                {userErrorsLoading && (
+                                  <div className="w-4 h-4 bg-gray-200 rounded-full animate-pulse"></div>
+                                )}
 
                               </div>
                               <div className="flex items-center gap-2">
@@ -1332,9 +1657,26 @@ export default function ConversationsPage() {
                                 {leaderboardTrends[user.email].percentChange! > 0 ? '+' : ''}{leaderboardTrends[user.email].percentChange}%
                               </span>
                             )}
-                            {/* Actions/messages/reports number */}
+                            {/* Error badge - only show when sorting by errors */}
+                            {leaderboardSort === 'errors' && (
+                              <span 
+                                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center ${
+                                  (userErrorCounts[user.email] || 0) >= 3 ? 'bg-red-50 text-red-700 border border-red-200' :
+                                  (userErrorCounts[user.email] || 0) >= 2 ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                                  (userErrorCounts[user.email] || 0) > 0 ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
+                                  'bg-gray-50 text-gray-600 border border-gray-200'
+                                }`}
+                                title={`${userErrorCounts[user.email] || 0} error${(userErrorCounts[user.email] || 0) !== 1 ? 's' : ''} in last 24 hours`}
+                              >
+                                {userErrorCounts[user.email] || 0} errors
+                              </span>
+                            )}
+                            {/* Actions/messages/reports/errors number */}
                             <span className="ml-2 text-lg font-bold text-gray-900 min-w-12 text-right inline-block">
-                              {leaderboardSort === 'messages' ? user.messages : leaderboardSort === 'reports' ? user.reports : user.totalActivity}
+                              {leaderboardSort === 'messages' ? user.messages : 
+                               leaderboardSort === 'reports' ? user.reports : 
+                               leaderboardSort === 'errors' ? (userErrorCounts[user.email] || 0) :
+                               user.totalActivity}
                             </span>
                           </div>
                         </button>
