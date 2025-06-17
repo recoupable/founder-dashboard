@@ -13,32 +13,33 @@ export async function GET(request: Request) {
     // Debug timezone information
     console.log('Active Users API: Timezone debug info:', {
       serverTime: new Date().toString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone: 'UTC (forced for production consistency)',
       utcTime: new Date().toISOString(),
-      localTime: new Date().toLocaleString()
+      localTime: new Date().toLocaleString(),
+      calculationMode: 'Using Date.now() for UTC consistency'
     });
     
-    // Calculate date ranges based on time filter (FORCE UTC for consistency)
-    const now = new Date();
+    // Calculate date ranges based on time filter (FORCE UTC for consistency with production)
     const getDateRange = (filter: string) => {
-      // Force UTC by using getTime() and creating new dates from timestamps
-      const nowUTC = new Date(now.getTime());
+      // Create UTC date by using current timestamp and forcing UTC interpretation
+      const nowTimestamp = Date.now();
+      const nowUTC = new Date(nowTimestamp);
       
       switch (filter) {
         case 'Last 24 Hours':
-          const last24Hours = new Date(nowUTC.getTime() - 24 * 60 * 60 * 1000);
+          const last24Hours = new Date(nowTimestamp - 24 * 60 * 60 * 1000);
           return { start: last24Hours, end: nowUTC };
         case 'Last 7 Days':
-          const last7Days = new Date(nowUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
+          const last7Days = new Date(nowTimestamp - 7 * 24 * 60 * 60 * 1000);
           return { start: last7Days, end: nowUTC };
         case 'Last 30 Days':
-          const last30Days = new Date(nowUTC.getTime() - 30 * 24 * 60 * 60 * 1000);
+          const last30Days = new Date(nowTimestamp - 30 * 24 * 60 * 60 * 1000);
           return { start: last30Days, end: nowUTC };
         case 'Last 3 Months':
-          const last3Months = new Date(nowUTC.getTime() - 90 * 24 * 60 * 60 * 1000);
+          const last3Months = new Date(nowTimestamp - 90 * 24 * 60 * 60 * 1000);
           return { start: last3Months, end: nowUTC };
         case 'Last 12 Months':
-          const last12Months = new Date(nowUTC.getTime() - 365 * 24 * 60 * 60 * 1000);
+          const last12Months = new Date(nowTimestamp - 365 * 24 * 60 * 60 * 1000);
           return { start: last12Months, end: nowUTC };
         default: // All Time or any unrecognized filter
           return { start: null, end: nowUTC };
@@ -62,146 +63,49 @@ export async function GET(request: Request) {
       previousPeriod.start = new Date(currentPeriod.start.getTime() - periodLength);
     }
 
-    // Get test filtering data if excluding test accounts
-    let allowedAccountIds: string[] = [];
-    let allowedRoomIds: string[] = [];
-    
+    // Get test emails list for filtering (simplified approach like other APIs)
+    let testEmailsList: string[] = [];
     if (excludeTest) {
-      // Get test emails list
       const { data: testEmailsData } = await supabaseAdmin
         .from('test_emails')
         .select('email');
-      const testEmailsList = (testEmailsData?.map(item => item.email) || []) as string[];
-      
-      // Get account data for filtering
-      const [emailAccountsResponse, walletAccountsResponse] = await Promise.all([
-        supabaseAdmin.from('account_emails').select('account_id, email'),
-        supabaseAdmin.from('account_wallets').select('account_id, wallet')
-      ]);
-      
-      const allowedAccountIdsSet = new Set<string>();
-      
-      // Add non-test email users
-      if (emailAccountsResponse.data) {
-        for (const account of emailAccountsResponse.data) {
-          const email = account.email;
-          if (!email) continue;
-          if (testEmailsList.includes(email)) continue;
-          if (email.includes('@example.com')) continue;
-          if (email.includes('+')) continue;
-          allowedAccountIdsSet.add(account.account_id);
-        }
-      }
-      
-      // Test wallet account IDs to exclude
-      const testWalletAccountIds = ['3cdea198', '5ada04cd', '44b0c8fd', 'c9e86577', '496a071a', 'a3b8a5ba', '2fbe2485'];
-      
-      // Add wallet users, excluding test wallets
-      if (walletAccountsResponse.data) {
-        for (const account of walletAccountsResponse.data) {
-          const isTestWallet = testWalletAccountIds.some(testId => account.account_id.startsWith(testId));
-          if (!isTestWallet) {
-            allowedAccountIdsSet.add(account.account_id);
-          }
-        }
-      }
-      
-      allowedAccountIds = Array.from(allowedAccountIdsSet);
-      
-      // Get test artist accounts to exclude
-      const { data: testArtistAccounts } = await supabaseAdmin
-        .from('accounts')
-        .select('id')
-        .eq('name', 'sweetman_eth');
-      
-      const testArtistAccountIds = new Set(testArtistAccounts?.map(account => account.id) || []);
-      console.log('Active Users API: Test artist account IDs:', testArtistAccountIds.size);
-      
-      // Get allowed rooms (excluding test artist rooms)
-      console.log('Active Users API: Querying rooms for', allowedAccountIds.length, 'allowed accounts');
-      
-      // Batch the room query to avoid Supabase .in() limits
-      const batchSize = 100; // Safe batch size for Supabase .in() operations
-      const allRoomsData = [];
-      
-      for (let i = 0; i < allowedAccountIds.length; i += batchSize) {
-        const batch = allowedAccountIds.slice(i, i + batchSize);
-        console.log(`Active Users API: Querying rooms batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(allowedAccountIds.length/batchSize)} with ${batch.length} accounts`);
-        
-        const { data: batchRoomsData, error: roomsError } = await supabaseAdmin
-          .from('rooms')
-          .select('id, artist_id')
-          .in('account_id', batch);
-        
-        if (roomsError) {
-          console.error('Active Users API: Error querying rooms batch:', roomsError);
-        } else if (batchRoomsData) {
-          allRoomsData.push(...batchRoomsData);
-        }
-      }
-      
-      console.log('Active Users API: Raw rooms query returned:', allRoomsData.length, 'rooms');
-      
-      allowedRoomIds = allRoomsData.filter(room => !testArtistAccountIds.has(room.artist_id))?.map(room => room.id) || [];
-      
-      const filteredOutRooms = allRoomsData.length - allowedRoomIds.length;
-      console.log('Active Users API: Filtered out', filteredOutRooms, 'rooms with test artists');
-      
-      console.log('Active Users API: Allowed accounts:', allowedAccountIds.length, 'Allowed rooms:', allowedRoomIds.length);
+      testEmailsList = (testEmailsData?.map(item => item.email) || []) as string[];
+      console.log('Active Users API: Test emails to exclude:', testEmailsList.length);
     }
 
     // Helper function to get active users for a time period
     const getActiveUsersForPeriod = async (start: Date | null, end: Date) => {
-      const activeUserIds = new Set<string>();
+      const activeUserEmails = new Set<string>();
       console.log('Active Users API: Getting users for period:', {
         start: start?.toISOString(),
         end: end.toISOString()
       });
       
-      // Get users who sent messages
-      let messageQuery = supabaseAdmin
-        .from('memories')
-        .select('room_id')
-        .lte('updated_at', end.toISOString());
+      // Get users who sent messages using the same RPC function as other working APIs
+      const { data: messageData } = await supabaseAdmin.rpc('get_message_counts_by_user', {
+        start_date: start?.toISOString() || '2020-01-01T00:00:00.000Z',
+        end_date: end.toISOString()
+      });
       
-      if (start) {
-        messageQuery = messageQuery.gte('updated_at', start.toISOString());
-      }
-      
-      if (excludeTest && allowedRoomIds.length > 0) {
-        messageQuery = messageQuery.in('room_id', allowedRoomIds);
-      } else if (excludeTest && allowedRoomIds.length === 0) {
-        console.log('Active Users API: DEBUG - No allowed rooms found, but proceeding with unfiltered query to debug');
-      }
-      
-      const { data: messageData } = await messageQuery;
       console.log('Active Users API: Found messages:', messageData?.length || 0);
       
-      if (messageData) {
-        // Get room owners for message rooms
-        const activeRoomIds = Array.from(new Set(messageData.map(m => m.room_id)));
-        if (activeRoomIds.length > 0) {
-          const { data: roomsData } = await supabaseAdmin
-            .from('rooms')
-            .select('account_id')
-            .in('id', activeRoomIds);
-          
-          if (roomsData) {
-            // If excluding test accounts, filter room owners by allowed accounts
-            if (excludeTest && allowedAccountIds.length > 0) {
-              roomsData.forEach(room => {
-                if (allowedAccountIds.includes(room.account_id)) {
-                  activeUserIds.add(room.account_id);
-                }
-              });
-              console.log('Active Users API: Users after account filtering:', activeUserIds.size);
-            } else {
-              roomsData.forEach(room => activeUserIds.add(room.account_id));
-            }
+      if (messageData && Array.isArray(messageData)) {
+        messageData.forEach((row: { account_email: string; message_count: number }) => {
+          if (row && row.account_email) {
+                         // Apply test email filtering
+             if (!excludeTest) {
+               activeUserEmails.add(row.account_email);
+             } else {
+               const email = row.account_email;
+               // Same filtering logic as other APIs
+               if (email && !testEmailsList.includes(email) && !email.includes('@example.com') && !email.includes('+')) {
+                 activeUserEmails.add(email);
+               }
+             }
           }
-        }
+        });
       }
-      console.log('Active Users API: Users from messages:', activeUserIds.size);
+      console.log('Active Users API: Users from messages:', activeUserEmails.size);
       
       // Get users who created segment reports
       let reportQuery = supabaseAdmin
@@ -217,25 +121,23 @@ export async function GET(request: Request) {
       console.log('Active Users API: Found segment reports:', reportData?.length || 0);
       
       if (reportData) {
-        // Convert emails to account IDs
-        for (const report of reportData) {
-          if (!report.account_email) continue;
-          
-          // Find account ID for this email
-          const { data: emailAccount } = await supabaseAdmin
-            .from('account_emails')
-            .select('account_id')
-            .eq('email', report.account_email)
-            .single();
-          
-          if (emailAccount && (!excludeTest || allowedAccountIds.includes(emailAccount.account_id))) {
-            activeUserIds.add(emailAccount.account_id);
+        reportData.forEach(report => {
+          if (report.account_email) {
+                         // Apply test email filtering
+             if (!excludeTest) {
+               activeUserEmails.add(report.account_email);
+             } else {
+               const email = report.account_email;
+               if (email && !testEmailsList.includes(email) && !email.includes('@example.com') && !email.includes('+')) {
+                 activeUserEmails.add(email);
+               }
+             }
           }
-        }
+        });
       }
       
-      console.log('Active Users API: Final user count for period:', activeUserIds.size);
-      return activeUserIds.size;
+      console.log('Active Users API: Final user count for period:', activeUserEmails.size);
+      return activeUserEmails.size;
     };
 
     // Calculate active users for current and previous periods
