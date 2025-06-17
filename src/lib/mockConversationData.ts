@@ -338,9 +338,11 @@ export const mockMessages: Record<string, Message[]> = {
 // Helper function to join the data together (simulating database joins)
 export type ConversationListItem = {
   room_id: string;
+  account_id: string;
   created_at: string;
   last_message_date: string;
   account_email: string;
+  artist_id: string;
   artist_name: string;
   artist_reference: string;
   is_test_account: boolean;
@@ -362,13 +364,15 @@ export function getMockConversationList(): ConversationListItem[] {
     
     // Find first artist associated with this account
     const artist = mockArtists.find(art => art.account_id === room.account_id) ||
-      { id: '', account_id: '', name: 'Unknown Artist', reference_id: '' };
+      { id: 'unknown', account_id: '', name: 'Unknown Artist', reference_id: '' };
     
     return {
       room_id: room.id,
+      account_id: room.account_id,
       created_at: room.created_at,
       last_message_date: room.last_message_date,
       account_email: account.email,
+      artist_id: artist.id,
       artist_name: artist.name,
       artist_reference: artist.reference_id || '',
       is_test_account: account.is_test_account || false

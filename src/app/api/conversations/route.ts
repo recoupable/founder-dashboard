@@ -144,6 +144,33 @@ export async function GET(request: NextRequest) {
     // Calculate pagination using filtered totals
     const offset = (page - 1) * limit;
 
+    // Search for rooms with matching message content if search query provided
+    let searchFilteredRoomIds: Set<string> | null = null;
+    if (searchQuery && searchQuery.trim() !== '') {
+      console.log(`[API] Searching for "${searchQuery}" in message content across ALL conversations...`);
+      
+      try {
+        // Search for user messages that contain the search query across all rooms
+        const { data: matchingMemories, error: searchError } = await supabaseAdmin
+          .from('memories')
+          .select('room_id')
+          .eq('role', 'user') // Only search user messages
+          .ilike('content', `%${searchQuery}%`); // Case-insensitive search
+          
+        if (searchError) {
+          console.error('Error searching memories:', searchError);
+        } else if (matchingMemories && matchingMemories.length > 0) {
+          searchFilteredRoomIds = new Set(matchingMemories.map(m => m.room_id));
+          console.log(`[API] Found ${searchFilteredRoomIds.size} rooms with messages containing "${searchQuery}"`);
+        } else {
+          console.log(`[API] No rooms found with messages containing "${searchQuery}"`);
+          searchFilteredRoomIds = new Set(); // Empty set - no matches
+        }
+      } catch (error) {
+        console.error('Exception searching message content:', error);
+      }
+    }
+
     // Handle user filtering - find account ID for the filtered email
     let userFilteredAccountIds: Set<string> | null = null;
     if (userFilter && userFilter.trim() !== '') {
@@ -202,6 +229,7 @@ export async function GET(request: NextRequest) {
     // Fetch rooms - filter by account IDs if excluding test emails
     let roomsData: Room[] | null;
     let roomsError;
+    let actualFilteredRoomCount = 0; // Track the actual total count after all filtering
     
     if (excludeTestEmails || userFilteredAccountIds) {
       console.log('API ROUTE: Fetching rooms with filtering (test emails and/or user filter)');
@@ -351,6 +379,24 @@ export async function GET(request: NextRequest) {
           console.log(`[API] Filtered to ${filteredRooms.length} rooms with recent activity (from ${allRooms.length} total)`);
         }
         
+        // Apply search filtering if provided
+        if (searchFilteredRoomIds !== null) {
+          const beforeSearchCount = filteredRooms.length;
+          filteredRooms = filteredRooms.filter(room => {
+            // Include rooms that match search OR match basic criteria (topic, etc.)
+            const matchesMessageContent = searchFilteredRoomIds!.has(room.id);
+            const matchesBasicCriteria = 
+              room.topic?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              false; // We'll check email/artist after fetching account data
+            return matchesMessageContent || matchesBasicCriteria;
+          });
+          console.log(`[API] Applied search filter: ${filteredRooms.length} rooms remain (from ${beforeSearchCount})`);
+        }
+        
+        // Set the actual filtered count before pagination
+        actualFilteredRoomCount = filteredRooms.length;
+        console.log(`[API] Total filtered rooms for this user: ${actualFilteredRoomCount}`);
+        
         // Apply pagination after merging and filtering all results
         const pagedRooms = filteredRooms.slice(offset, offset + limit);
         // Filter out test artist rooms after fetching (only if excludeTestEmails is true)
@@ -364,19 +410,61 @@ export async function GET(request: NextRequest) {
       } else {
         roomsData = [];
         roomsError = null;
+        actualFilteredRoomCount = 0;
       }
     } else {
       console.log('API ROUTE: Fetching all rooms (no filtering)');
       
-      // Fetch all rooms without filtering
-      const { data, error } = await supabaseAdmin
-        .from('rooms')
-        .select('id, account_id, artist_id, updated_at, topic')
-        .order('updated_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-      
-      roomsData = data;
-      roomsError = error;
+      // If we have search filtering, we need to get all rooms first then filter
+      if (searchFilteredRoomIds !== null) {
+        console.log('[API] Search filtering active - fetching all rooms first');
+        
+        // Get all rooms first
+        const { data: allRoomsData, error } = await supabaseAdmin
+          .from('rooms')
+          .select('id, account_id, artist_id, updated_at, topic')
+          .order('updated_at', { ascending: false });
+        
+        if (error) {
+          console.error('Error fetching all rooms for search:', error);
+          roomsData = [];
+          roomsError = error;
+        } else if (allRoomsData) {
+          // Apply search filtering
+          const searchFilteredRooms = allRoomsData.filter(room => {
+            const matchesMessageContent = searchFilteredRoomIds!.has(room.id);
+            const matchesBasicCriteria = 
+              room.topic?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              false; // We'll check email/artist after fetching account data
+            return matchesMessageContent || matchesBasicCriteria;
+          });
+          
+          console.log(`[API] Search filtered ${allRoomsData.length} rooms down to ${searchFilteredRooms.length}`);
+          
+          // Set the actual filtered count before pagination
+          actualFilteredRoomCount = searchFilteredRooms.length;
+          
+          // Apply pagination to search results
+          roomsData = searchFilteredRooms.slice(offset, offset + limit);
+          roomsError = null;
+        } else {
+          roomsData = [];
+          roomsError = null;
+          actualFilteredRoomCount = 0;
+        }
+      } else {
+        // No search filtering - use original pagination
+        const { data, error } = await supabaseAdmin
+          .from('rooms')
+          .select('id, account_id, artist_id, updated_at, topic')
+          .order('updated_at', { ascending: false })
+          .range(offset, offset + limit - 1);
+        
+        roomsData = data;
+        roomsError = error;
+        // For non-filtered queries, use the original total count
+        actualFilteredRoomCount = filteredTotalRooms;
+      }
     }
 
     console.log(`API ROUTE: Fetched ${roomsData?.length || 0} rooms for page ${page}`);
@@ -540,6 +628,7 @@ export async function GET(request: NextRequest) {
       
       return {
         room_id: room.id,
+        account_id: room.account_id,
         created_at: room.updated_at,
         last_message_date: lastMessageDate,
         account_email: displayEmail,
@@ -558,8 +647,11 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Calculate pagination metadata using filtered totals
-    const totalPages = Math.ceil(filteredTotalRooms / limit);
+    // Calculate pagination metadata using actual filtered totals
+    const actualTotalForPagination = actualFilteredRoomCount;
+    console.log(`[API] Using actual filtered room count for pagination: ${actualTotalForPagination}`);
+    
+    const totalPages = Math.ceil(actualTotalForPagination / limit);
     const hasMore = page < totalPages;
 
     // Calculate conversation counts by time period for percentage calculations
@@ -790,28 +882,7 @@ export async function GET(request: NextRequest) {
       console.error('API ROUTE: Error fetching conversation counts:', error);
     }
 
-    // Filter by search query if provided
-    if (searchQuery) {
-      console.log('Filtering by search query:', searchQuery);
-      const filteredResult = result.filter(
-        (conversation) =>
-          conversation.account_email?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
-          conversation.artist_name?.toLowerCase?.().includes(searchQuery.toLowerCase()) ||
-          conversation.topic?.toLowerCase?.().includes(searchQuery.toLowerCase())
-      );
-      console.log(`API ROUTE: Returning ${filteredResult.length} filtered conversations (page ${page}/${totalPages})`);
-      return NextResponse.json({
-        conversations: filteredResult,
-        totalCount: filteredTotalRooms,
-        totalUniqueUsers: filteredTotalUniqueUsers,
-        currentPage: page,
-        totalPages,
-        hasMore,
-        filtered: true,
-        originalCount: result.length,
-        conversationCounts
-      });
-    }
+    // Search filtering is now handled at the room level before transformation
 
     console.log('[API] Emails in fetched conversations:', result.map(c => c.account_email));
 
@@ -824,7 +895,7 @@ export async function GET(request: NextRequest) {
       console.log('[API] Emails after userFilter:', filteredResult.map(c => c.account_email));
       return NextResponse.json({
         conversations: filteredResult,
-        totalCount: filteredTotalRooms,
+        totalCount: actualTotalForPagination,
         totalUniqueUsers: filteredTotalUniqueUsers,
         currentPage: page,
         totalPages,
@@ -839,11 +910,13 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       conversations: result,
-      totalCount: filteredTotalRooms,
+      totalCount: actualTotalForPagination,
       totalUniqueUsers: filteredTotalUniqueUsers,
       currentPage: page,
       totalPages,
       hasMore,
+      filtered: searchFilteredRoomIds !== null || Boolean(userFilter),
+      originalCount: filteredTotalRooms,
       conversationCounts
     });
   } catch (error) {
@@ -858,6 +931,7 @@ function createFallbackConversation() {
   const timestamp = new Date().toISOString();
   return {
     room_id: id,
+    account_id: 'unknown',
     created_at: timestamp,
     last_message_date: timestamp,
     account_email: 'unknown@example.com',

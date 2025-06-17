@@ -89,6 +89,15 @@ const ConversationList: React.FC<ConversationListProps> = ({
                   <p className="text-sm text-gray-600 truncate">
                     {conversation.account_email}
                   </p>
+                  <p className="text-sm text-gray-600 truncate">
+                    <span className="font-medium">Room ID:</span> {conversation.room_id}
+                  </p>
+                  <p className="text-sm text-gray-600 truncate">
+                    <span className="font-medium">Account ID:</span> {conversation.account_id}
+                  </p>
+                  <p className="text-sm text-gray-600 truncate">
+                    <span className="font-medium">Artist ID:</span> {conversation.artist_id}
+                  </p>
                   <div className="text-xs text-gray-500 mt-1 space-y-1">
                     <div>
                       <span className="font-medium">Room created:</span>{' '}

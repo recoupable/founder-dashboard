@@ -41,10 +41,12 @@ export interface Message {
 // Composite types for the UI
 export interface ConversationListItem {
   room_id: string;
+  account_id: string;
   created_at: string;
   last_message_date: string;
   account_email: string;
   account_name?: string;
+  artist_id: string;
   artist_name: string;
   artist_reference: string;
   topic?: string;
