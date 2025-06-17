@@ -89,10 +89,18 @@ const ConversationList: React.FC<ConversationListProps> = ({
                   <p className="text-sm text-gray-600 truncate">
                     {conversation.account_email}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(conversation.last_message_date).toLocaleDateString()} at{' '}
-                    {new Date(conversation.last_message_date).toLocaleTimeString()}
-                  </p>
+                  <div className="text-xs text-gray-500 mt-1 space-y-1">
+                    <div>
+                      <span className="font-medium">Room created:</span>{' '}
+                      {new Date(conversation.room_created_at || conversation.created_at).toLocaleDateString()} at{' '}
+                      {new Date(conversation.room_created_at || conversation.created_at).toLocaleTimeString()}
+                    </div>
+                    <div>
+                      <span className="font-medium">Last message:</span>{' '}
+                      {new Date(conversation.last_message_date).toLocaleDateString()} at{' '}
+                      {new Date(conversation.last_message_date).toLocaleTimeString()}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
