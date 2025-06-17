@@ -50,6 +50,7 @@ export interface ConversationListItem {
   topic?: string;
   is_test_account: boolean;
   messageCount?: number;
+  room_created_at?: string; // Explicit room creation date
 }
 
 export interface ConversationDetail {

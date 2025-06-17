@@ -8,10 +8,36 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const searchQuery = searchParams.get('search') || '';
     const excludeTestEmails = searchParams.get('excludeTest') === 'true';
+    const timeFilter = searchParams.get('timeFilter') || '';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '100');
     const userFilter = searchParams.get('userFilter') || '';
     
+    console.log(`API ROUTE: Parameters - timeFilter: ${timeFilter}, userFilter: ${userFilter}, excludeTest: ${excludeTestEmails}`);
+
+    // Helper function to get date range for time filter
+    function getDateRangeForTimeFilter(filter: string): { start: string | null, end: string } {
+      const now = new Date();
+      const end = now.toISOString();
+      
+      switch (filter) {
+        case 'Last 24 Hours':
+          const start24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          return { start: start24h.toISOString(), end };
+        case 'Last 7 Days':
+          const start7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          return { start: start7d.toISOString(), end };
+        case 'Last 30 Days':
+          const start30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          return { start: start30d.toISOString(), end };
+        case 'Last 90 Days':
+          const start90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          return { start: start90d.toISOString(), end };
+        default:
+          return { start: null, end };
+      }
+    }
+
     // Get total count first for pagination
     const { count: totalRooms, error: countError } = await supabaseAdmin
       .from('rooms')
@@ -277,6 +303,27 @@ export async function GET(request: NextRequest) {
       console.log('[API] First 10 allowed account IDs:', allowedAccountIdsArray.slice(0, 10));
       
       if (allowedAccountIdsArray.length > 0) {
+        // Check if we need to apply time filtering (when both userFilter and timeFilter are provided)
+        const shouldApplyTimeFilter = userFilter && timeFilter && timeFilter !== 'All Time';
+        let roomsWithRecentActivity: Set<string> | null = null;
+        
+        if (shouldApplyTimeFilter) {
+          console.log(`[API] Applying time filter: ${timeFilter} for user filter: ${userFilter}`);
+          const { start: timeStart, end: timeEnd } = getDateRangeForTimeFilter(timeFilter);
+          
+          if (timeStart) {
+            // Get rooms that had message activity in the specified time period
+            const { data: recentMemories } = await supabaseAdmin
+              .from('memories')
+              .select('room_id')
+              .gte('updated_at', timeStart)
+              .lte('updated_at', timeEnd);
+            
+            roomsWithRecentActivity = new Set((recentMemories || []).map(m => m.room_id));
+            console.log(`[API] Found ${roomsWithRecentActivity.size} rooms with recent activity in ${timeFilter}`);
+          }
+        }
+
         // Batch the .in() queries to avoid hitting Supabase/Postgres limits
         const chunkSize = 100;
         const allRooms: Room[] = [];
@@ -296,8 +343,16 @@ export async function GET(request: NextRequest) {
             allRooms.push(...data);
           }
         }
-        // Apply pagination after merging all results
-        const pagedRooms = allRooms.slice(offset, offset + limit);
+        
+        // Apply time filtering first if needed
+        let filteredRooms = allRooms;
+        if (shouldApplyTimeFilter && roomsWithRecentActivity) {
+          filteredRooms = allRooms.filter(room => roomsWithRecentActivity!.has(room.id));
+          console.log(`[API] Filtered to ${filteredRooms.length} rooms with recent activity (from ${allRooms.length} total)`);
+        }
+        
+        // Apply pagination after merging and filtering all results
+        const pagedRooms = filteredRooms.slice(offset, offset + limit);
         // Filter out test artist rooms after fetching (only if excludeTestEmails is true)
         if (excludeTestEmails) {
           roomsData = pagedRooms.filter(room => !testArtistAccountIds.has(room.artist_id)) || [];
@@ -338,12 +393,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Count messages for each room - with smaller dataset, we can use larger batches
+    // Count messages and get last message dates for each room - with smaller dataset, we can use larger batches
     const roomIds = roomsData.map((room: { id: string }) => room.id);
-    console.log(`Fetching message counts for ${roomIds.length} rooms`);
+    console.log(`Fetching message counts and last message dates for ${roomIds.length} rooms`);
     
     // Batch the message count queries - larger batch size since we have fewer rooms
     const messageCountMap = new Map<string, number>();
+    const lastMessageDateMap = new Map<string, string>();
     const batchSize = 100; // Larger batch since we only have ~100 rooms per page
     
     for (let i = 0; i < roomIds.length; i += batchSize) {
@@ -353,8 +409,9 @@ export async function GET(request: NextRequest) {
       try {
         const { data: memoriesData, error: memoriesError } = await supabaseAdmin
           .from('memories')
-          .select('room_id')
-          .in('room_id', batch);
+          .select('room_id, updated_at')
+          .in('room_id', batch)
+          .order('updated_at', { ascending: false });
           
         if (memoriesError) {
           console.error(`Error fetching message counts for batch ${Math.floor(i/batchSize) + 1}:`, memoriesError);
@@ -362,10 +419,15 @@ export async function GET(request: NextRequest) {
         }
         
         if (memoriesData && memoriesData.length > 0) {
-          // Count occurrences of each room_id in this batch
-          for (const memory of memoriesData as { room_id: string }[]) {
+          // Count occurrences of each room_id and track last message date
+          for (const memory of memoriesData as { room_id: string, updated_at: string }[]) {
             const count = messageCountMap.get(memory.room_id) || 0;
             messageCountMap.set(memory.room_id, count + 1);
+            
+            // Track the latest message date for each room (since we ordered by updated_at desc)
+            if (!lastMessageDateMap.has(memory.room_id)) {
+              lastMessageDateMap.set(memory.room_id, memory.updated_at);
+            }
           }
         }
       } catch (error) {
@@ -373,7 +435,7 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    console.log(`Found message counts for ${messageCountMap.size} rooms`);
+    console.log(`Found message counts for ${messageCountMap.size} rooms and last message dates for ${lastMessageDateMap.size} rooms`);
     
     // Cast roomsData for type safety
     const typedRoomsData = roomsData as Array<{
@@ -473,10 +535,13 @@ export async function GET(request: NextRequest) {
       const artistId = room.artist_id || 'Unknown Artist';
       const artistName = artistNamesMap.get(artistId) || artistId;
       
+      // Get the actual last message date, fallback to room creation date if no messages
+      const lastMessageDate = lastMessageDateMap.get(room.id) || room.updated_at;
+      
       return {
         room_id: room.id,
         created_at: room.updated_at,
-        last_message_date: room.updated_at,
+        last_message_date: lastMessageDate,
         account_email: displayEmail,
         account_name: accountName,
         artist_name: artistName,
@@ -488,7 +553,8 @@ export async function GET(request: NextRequest) {
         messageCount: messageCountMap.get(room.id) || 0,
         email: displayEmail,
         artist_id: artistId,
-        is_wallet_user: isWalletUser
+        is_wallet_user: isWalletUser,
+        room_created_at: room.updated_at  // Explicitly include room creation date
       };
     });
 
