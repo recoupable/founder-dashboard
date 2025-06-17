@@ -42,9 +42,12 @@ interface ParsedError {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('🔔 Telegram webhook received')
+    console.log('🔔 Telegram webhook received at:', new Date().toISOString())
     
     const update: TelegramWebhookUpdate = await request.json()
+    
+    // LOG ALL WEBHOOK ACTIVITY FOR TESTING
+    console.log('📊 Full webhook update received:', JSON.stringify(update, null, 2))
     
     // Verify this is from our target chat
     const CHAT_ID = process.env.TELEGRAM_CHAT_ID
@@ -60,17 +63,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    console.log('📨 Message details:', {
+      messageId: message.message_id,
+      chatId: message.chat.id,
+      chatType: message.chat.type,
+      chatTitle: message.chat.title,
+      from: update.message?.from?.username || 'channel_post',
+      date: new Date(message.date * 1000).toISOString(),
+      textPreview: message.text?.substring(0, 100) + (message.text?.length > 100 ? '...' : '')
+    })
+
     // Check if it's from our target chat
     if (message.chat.id.toString() !== CHAT_ID) {
       console.log(`🚫 Message from different chat: ${message.chat.id} (expected: ${CHAT_ID})`)
       return NextResponse.json({ ok: true })
     }
 
+    console.log('✅ Message is from target chat! Processing...')
+
     const text = message.text || ''
     
     // Only process error messages
     if (!text.includes('❌ Error Alert') && !text.includes('Error Alert')) {
-      console.log('📝 Message is not an error alert')
+      console.log('📝 Message is not an error alert - but webhook is working!')
+      console.log('💬 Message content:', text.substring(0, 200))
       return NextResponse.json({ ok: true })
     }
 
