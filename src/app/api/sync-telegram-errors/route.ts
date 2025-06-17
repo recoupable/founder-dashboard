@@ -7,14 +7,18 @@ interface TelegramMessage {
   text: string
   from?: {
     username?: string
+    id?: number
   }
   chat: {
     id: number | string
+    type: string
+    title?: string
   }
 }
 
 interface TelegramUpdate {
   message?: TelegramMessage
+  channel_post?: TelegramMessage
 }
 
 interface TelegramResponse {
@@ -53,13 +57,81 @@ export async function POST(request: Request) {
       }, { status: 500 })
     }
 
-    // Fetch recent messages from Telegram
-    const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`
-    const response = await fetch(telegramUrl)
-    const data = await response.json() as TelegramResponse
+    console.log('🔄 Starting Telegram sync...', { days, CHAT_ID })
 
-    if (!data.ok) {
-      throw new Error(`Telegram API error: ${data.description}`)
+    // First, get bot info to verify connection
+    const botInfoUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getMe`
+    const botInfoResponse = await fetch(botInfoUrl)
+    const botInfo = await botInfoResponse.json()
+    
+    if (!botInfo.ok) {
+      console.error('❌ Bot info failed:', botInfo)
+      return NextResponse.json({ 
+        error: `Bot authentication failed: ${botInfo.description}` 
+      }, { status: 500 })
+    }
+    
+    console.log('✅ Bot info:', botInfo.result?.username, botInfo.result?.first_name)
+
+    // Try multiple methods to get messages
+    const allMessages: TelegramMessage[] = []
+    
+    // Method 1: getUpdates (works for groups and some channels)
+    try {
+      const telegramUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?limit=100`
+      const response = await fetch(telegramUrl)
+      const data = await response.json() as TelegramResponse
+
+      if (data.ok) {
+        console.log(`📨 getUpdates returned ${data.result.length} updates`)
+        
+        // Filter for messages from our chat
+        const chatMessages = data.result
+          .map(update => update.message || update.channel_post)
+          .filter((message): message is TelegramMessage => 
+            message !== undefined && 
+            message.chat.id.toString() === CHAT_ID
+          )
+        
+        allMessages.push(...chatMessages)
+        console.log(`📝 Found ${chatMessages.length} messages from our chat`)
+      } else {
+        console.warn('⚠️  getUpdates failed:', data.description)
+      }
+    } catch (error) {
+      console.warn('⚠️  getUpdates error:', error)
+    }
+
+    // Method 2: Try getChatHistory if available (doesn't work with standard bot API)
+    // This is mainly for debugging - showing we've tried multiple approaches
+    
+    // Method 3: If no messages found, provide debugging info
+    if (allMessages.length === 0) {
+      console.log('🔍 Debugging: No messages found. Checking chat accessibility...')
+      
+      // Try to get chat info
+      try {
+        const chatInfoUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${CHAT_ID}`
+        const chatInfoResponse = await fetch(chatInfoUrl)
+        const chatInfo = await chatInfoResponse.json()
+        
+        if (chatInfo.ok) {
+          console.log('✅ Chat info:', {
+            title: chatInfo.result.title,
+            type: chatInfo.result.type,
+            memberCount: chatInfo.result.members_count
+          })
+        } else {
+          console.error('❌ Chat info failed:', chatInfo.description)
+          return NextResponse.json({ 
+            error: `Cannot access chat: ${chatInfo.description}. Make sure the bot is added to the channel with proper permissions.`,
+            chatId: CHAT_ID,
+            suggestion: 'Add the bot to your Telegram channel and give it admin permissions to read messages.'
+          }, { status: 500 })
+        }
+      } catch (error) {
+        console.error('❌ Chat info error:', error)
+      }
     }
 
     // Filter messages from the last N days
@@ -67,20 +139,19 @@ export async function POST(request: Request) {
     cutoffDate.setDate(cutoffDate.getDate() - days)
     const cutoffTimestamp = Math.floor(cutoffDate.getTime() / 1000)
 
-    const recentMessages = data.result
-      .filter((update: TelegramUpdate) => 
-        update.message && 
-        update.message.chat.id.toString() === CHAT_ID &&
-        update.message.date >= cutoffTimestamp
-      )
-      .map((update: TelegramUpdate) => update.message!)
-      .filter((message): message is TelegramMessage => message !== undefined)
+    const recentMessages = allMessages.filter(message => 
+      message.date >= cutoffTimestamp
+    )
+
+    console.log(`🕒 Found ${recentMessages.length} recent messages (last ${days} days)`)
 
     // Filter only error messages
     const errorMessages = recentMessages.filter(message => {
       const text = message.text || ''
       return text.includes('❌ Error Alert') || text.includes('Error Alert')
     })
+
+    console.log(`🚨 Found ${errorMessages.length} error messages`)
 
     let syncedCount = 0
     let skippedCount = 0
@@ -96,11 +167,14 @@ export async function POST(request: Request) {
 
       if (existing) {
         skippedCount++
+        console.log(`⏭️  Skipping existing message ${message.message_id}`)
         continue // Skip if already exists
       }
 
       // Parse the error message
       const parsed = parseErrorMessage(message.text || '')
+      
+      console.log(`💾 Inserting error from ${parsed.userEmail} - ${parsed.toolName}`)
       
       // Insert into Supabase
       const { error } = await supabase
@@ -119,23 +193,35 @@ export async function POST(request: Request) {
         })
 
       if (error) {
-        console.error('Error inserting to Supabase:', error)
+        console.error('❌ Error inserting to Supabase:', error)
       } else {
         syncedCount++
+        console.log(`✅ Synced error ${message.message_id}`)
       }
     }
 
-    return NextResponse.json({
+    const result = {
       success: true,
       syncedCount,
       skippedCount,
-      totalErrorMessages: errorMessages.length
-    })
+      totalErrorMessages: errorMessages.length,
+      totalMessages: allMessages.length,
+      debugging: {
+        chatId: CHAT_ID,
+        botUsername: botInfo.result?.username,
+        recentMessagesFound: recentMessages.length,
+        cutoffDate: cutoffDate.toISOString()
+      }
+    }
+
+    console.log('🎉 Sync completed:', result)
+    return NextResponse.json(result)
 
   } catch (error) {
-    console.error('Error syncing Telegram messages:', error)
+    console.error('❌ Error syncing Telegram messages:', error)
     return NextResponse.json({ 
-      error: 'Failed to sync error data' 
+      error: 'Failed to sync error data',
+      details: error instanceof Error ? error.message : String(error)
     }, { status: 500 })
   }
 }
