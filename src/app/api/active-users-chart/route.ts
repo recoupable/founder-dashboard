@@ -175,9 +175,7 @@ export async function GET(request: Request) {
 
     const result = {
       labels: data.map(d => d.label),
-      data: data.map(d => d.value),
-      timeFilter,
-      excludeTest
+      data: data.map(d => d.value)
     };
 
     console.log('Active Users Chart API: Generated', data.length, 'data points');
