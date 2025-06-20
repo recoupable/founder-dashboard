@@ -124,140 +124,51 @@ export async function GET(request: Request) {
       } : null
     });
 
-    // Get test filtering data if excluding test accounts
-    let allowedAccountIds: string[] = [];
-    let allowedRoomIds: string[] = [];
+    // Get test emails list if excluding test accounts
+    let testEmailsList: string[] = [];
     
     if (excludeTest) {
-      // Get test emails list
       const { data: testEmailsData } = await supabaseAdmin
         .from('test_emails')
         .select('email');
-      const testEmailsList = (testEmailsData?.map(item => item.email) || []) as string[];
-      
-      // Get account data for filtering
-      const [emailAccountsResponse, walletAccountsResponse] = await Promise.all([
-        supabaseAdmin.from('account_emails').select('account_id, email'),
-        supabaseAdmin.from('account_wallets').select('account_id, wallet')
-      ]);
-      
-      const allowedAccountIdsSet = new Set<string>();
-      
-      // Add non-test email users
-      if (emailAccountsResponse.data) {
-        for (const account of emailAccountsResponse.data) {
-          const email = account.email;
-          if (!email) continue;
-          if (testEmailsList.includes(email)) continue;
-          if (email.includes('@example.com')) continue;
-          if (email.includes('+')) continue;
-          allowedAccountIdsSet.add(account.account_id);
-        }
-      }
-      
-      // Test wallet account IDs to exclude
-      const testWalletAccountIds = ['3cdea198', '5ada04cd', '44b0c8fd', 'c9e86577', '496a071a', 'a3b8a5ba', '2fbe2485'];
-      
-      // Add wallet users, excluding test wallets
-      if (walletAccountsResponse.data) {
-        for (const account of walletAccountsResponse.data) {
-          const isTestWallet = testWalletAccountIds.some(testId => account.account_id.startsWith(testId));
-          if (!isTestWallet) {
-            allowedAccountIdsSet.add(account.account_id);
-          }
-        }
-      }
-      
-      allowedAccountIds = Array.from(allowedAccountIdsSet);
-      
-      // Get test artist accounts to exclude
-      const { data: testArtistAccounts } = await supabaseAdmin
-        .from('accounts')
-        .select('id')
-        .eq('name', 'sweetman_eth');
-      
-      const testArtistAccountIds = new Set(testArtistAccounts?.map(account => account.id) || []);
-      
-      // Get allowed rooms (excluding test artist rooms)
-      const { data: allowedRoomsData } = await supabaseAdmin
-        .from('rooms')
-        .select('id, artist_id')
-        .in('account_id', allowedAccountIds);
-      
-      allowedRoomIds = allowedRoomsData?.filter(room => !testArtistAccountIds.has(room.artist_id))?.map(room => room.id) || [];
+      testEmailsList = (testEmailsData?.map(item => item.email) || []) as string[];
     }
 
-    // Calculate active users for each interval
+    // Calculate active users for each interval using the same RPC approach as working APIs
     const data = await Promise.all(intervals.map(async (interval) => {
-      const activeUserIds = new Set<string>();
+      // Use the same RPC function that works in other APIs
+      const { data: messageData } = await supabaseAdmin.rpc('get_message_counts_by_user', {
+        start_date: interval.start.toISOString(),
+        end_date: interval.end.toISOString()
+      });
       
-      // Get users who sent messages in this interval
-      let messageQuery = supabaseAdmin
-        .from('memories')
-        .select('room_id')
-        .gte('updated_at', interval.start.toISOString())
-        .lte('updated_at', interval.end.toISOString());
-      
-      if (excludeTest && allowedRoomIds.length > 0) {
-        messageQuery = messageQuery.in('room_id', allowedRoomIds);
+      if (!messageData) {
+        return {
+          label: interval.label,
+          value: 0,
+          date: interval.start.toISOString()
+        };
       }
       
-      const { data: messageData } = await messageQuery;
+      // Apply test email filtering (same as other working APIs)
+      const activeUsers = new Set<string>();
       
-      if (messageData) {
-        // Get room owners for message rooms
-        const activeRoomIds = Array.from(new Set(messageData.map(m => m.room_id)));
-        if (activeRoomIds.length > 0) {
-          const { data: roomsData } = await supabaseAdmin
-            .from('rooms')
-            .select('account_id')
-            .in('id', activeRoomIds);
-          
-          if (roomsData) {
-            // If excluding test accounts, filter room owners by allowed accounts
-            if (excludeTest && allowedAccountIds.length > 0) {
-              roomsData.forEach(room => {
-                if (allowedAccountIds.includes(room.account_id)) {
-                  activeUserIds.add(room.account_id);
-                }
-              });
-            } else {
-              roomsData.forEach(room => activeUserIds.add(room.account_id));
-            }
-          }
+      messageData.forEach((row: { account_email: string; message_count: number }) => {
+        if (!row.account_email) return;
+        
+        if (excludeTest) {
+          // Apply same filtering logic as other working APIs
+          if (testEmailsList.includes(row.account_email)) return;
+          if (row.account_email.includes('@example.com')) return;
+          if (row.account_email.includes('+')) return;
         }
-      }
-      
-      // Get users who created segment reports in this interval
-      const reportQuery = supabaseAdmin
-        .from('segment_reports')
-        .select('account_email')
-        .gte('updated_at', interval.start.toISOString())
-        .lte('updated_at', interval.end.toISOString());
-      
-      const { data: reportData } = await reportQuery;
-      
-      if (reportData) {
-        // Convert emails to account IDs
-        for (const report of reportData) {
-          if (!report.account_email) continue;
-          
-          // Find account ID for this email
-          const { data: emailAccount } = await supabaseAdmin
-            .from('account_emails')
-            .select('account_id')
-            .eq('email', report.account_email)
-            .single();
-          
-          if (emailAccount && (!excludeTest || allowedAccountIds.includes(emailAccount.account_id))) {
-            activeUserIds.add(emailAccount.account_id);
-          }
-        }
-      }
+        
+        activeUsers.add(row.account_email);
+      });
       
       return {
         label: interval.label,
-        value: activeUserIds.size,
+        value: activeUsers.size,
         date: interval.start.toISOString()
       };
     }));
