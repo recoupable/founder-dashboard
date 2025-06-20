@@ -9,7 +9,27 @@
 import React from 'react';
 import { Line } from 'react-chartjs-2';
 import type { TooltipItem } from 'chart.js';
-import { format, parseISO } from 'date-fns';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 export interface ActiveUsersChartData {
   labels: string[];
@@ -120,14 +140,9 @@ const ActiveUsersChart: React.FC<ActiveUsersChartProps> = ({
               x: {
                 ticks: {
                   callback: function(value) {
-                    // Try to format as 'EEE - MMM d' (e.g., 'Mon - Jun 10')
+                    // Return the label as-is since API already provides formatted labels
                     const label = chartData.labels?.[value as number];
-                    if (!label) return '';
-                    try {
-                      return format(parseISO(label), 'EEE - MMM d');
-                    } catch {
-                      return label;
-                    }
+                    return label || '';
                   }
                 }
               },
