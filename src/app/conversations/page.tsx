@@ -251,6 +251,7 @@ export default function ConversationsPage() {
     errorBreakdown: {},
     errorRate: 0
   })
+  const [errorDataLoading, setErrorDataLoading] = useState(false)
   const [showErrorDropdown, setShowErrorDropdown] = useState(false)
 
   // Define testEmailFilteredConversations before any useEffect that uses it
@@ -296,6 +297,7 @@ export default function ConversationsPage() {
   useEffect(() => {
     const fetchErrorData = async () => {
       try {
+        setErrorDataLoading(true)
         const days = timeFilter === 'Last 24 Hours' ? 1 : timeFilter === 'Last 7 Days' ? 7 : 30
         
         // Fetch error data
@@ -358,6 +360,8 @@ export default function ConversationsPage() {
         }
       } catch (error) {
         console.error('Error fetching error data:', error)
+      } finally {
+        setErrorDataLoading(false)
       }
     }
     
@@ -455,16 +459,17 @@ export default function ConversationsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showErrorDropdown])
 
-  // Fetch user error counts for last 24 hours
+  // Fetch user error counts for selected time period
   useEffect(() => {
     const fetchUserErrors = async () => {
       try {
         setUserErrorsLoading(true);
         
-        console.log('🔍 [DASHBOARD] Fetching user errors from last 24 hours...');
+        const days = timeFilter === 'Last 24 Hours' ? 1 : timeFilter === 'Last 7 Days' ? 7 : 30;
+        console.log(`🔍 [DASHBOARD] Fetching user errors for ${timeFilter} (${days} days)...`);
         
-        // Fetch errors from last 24 hours
-        const response = await fetch('/api/error-logs?days=1');
+        // Fetch errors for selected time period
+        const response = await fetch(`/api/error-logs?days=${days}`);
         const data = await response.json();
         
         console.log('🔍 [DASHBOARD] API response:', { 
@@ -513,7 +518,7 @@ export default function ConversationsPage() {
     // Refresh every 2 minutes
     const interval = setInterval(fetchUserErrors, 2 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [timeFilter]);
 
   React.useEffect(() => {
     async function fetchReports() {
@@ -1365,8 +1370,17 @@ export default function ConversationsPage() {
                       >
                         <div className="flex items-center gap-1.5">
                           <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                          <span className="text-red-600 font-semibold">{errorData.totalErrors}</span>
-                          <span className="text-gray-500">errors</span>
+                          {errorDataLoading ? (
+                            <div className="flex items-center gap-1">
+                              <div className="w-4 h-4 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin"></div>
+                              <span className="text-gray-500">loading...</span>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="text-red-600 font-semibold">{errorData.totalErrors}</span>
+                              <span className="text-gray-500">errors</span>
+                            </>
+                          )}
                         </div>
                         <svg 
                           className={`w-3 h-3 text-gray-400 transition-transform duration-200 ${showErrorDropdown ? 'rotate-180' : ''}`} 
@@ -1390,20 +1404,36 @@ export default function ConversationsPage() {
                                 <span className="text-xs font-medium text-gray-700">Error Rate</span>
                               </div>
                               {/* Error Rate Display - aligned with tool count badges */}
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                (errorData.errorRate || 0) >= 5 ? 'bg-red-100 text-red-700' :
-                                (errorData.errorRate || 0) >= 2 ? 'bg-orange-100 text-orange-700' :
-                                (errorData.errorRate || 0) > 0 ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-green-100 text-green-700'
-                              }`}>
-                                {(errorData.errorRate || 0).toFixed(1)}%
-                              </span>
+                              {errorDataLoading ? (
+                                <div className="h-5 w-12 bg-gray-200 rounded animate-pulse"></div>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  (errorData.errorRate || 0) >= 5 ? 'bg-red-100 text-red-700' :
+                                  (errorData.errorRate || 0) >= 2 ? 'bg-orange-100 text-orange-700' :
+                                  (errorData.errorRate || 0) > 0 ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-green-100 text-green-700'
+                                }`}>
+                                  {(errorData.errorRate || 0).toFixed(1)}%
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="p-3">
                             
                             {/* Tool Breakdown */}
-                            {Object.keys(errorData.errorBreakdown).length > 0 ? (
+                            {errorDataLoading ? (
+                              <div className="space-y-2">
+                                {[...Array(3)].map((_, i) => (
+                                  <div key={i} className="flex justify-between items-center px-2 py-1.5">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 bg-gray-200 rounded-full animate-pulse"></div>
+                                      <div className="h-3 w-20 bg-gray-200 rounded animate-pulse"></div>
+                                    </div>
+                                    <div className="h-4 w-8 bg-gray-200 rounded animate-pulse"></div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : Object.keys(errorData.errorBreakdown).length > 0 ? (
                               <div className="space-y-2">
                                 {Object.entries(errorData.errorBreakdown)
                                   .sort(([,a], [,b]) => b - a) // Sort by count descending

@@ -96,6 +96,7 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 - ✅ Comprehensive error categorization
 - ✅ Improved debugging and diagnostics
 - ✅ Fallback mechanisms for reliability
+- ✅ Error loading states when time period changes
 
 ### Infrastructure
 - ✅ Enhanced Telegram webhook support
@@ -108,6 +109,12 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 - ✅ Improved room identification for easier debugging and user tracking
 - ✅ Updated API responses to include account_id information
 - ✅ Advanced search functionality that searches through user message content in addition to emails, topics, and artist names
+
+### UI/UX Improvements
+- ✅ Error dropdown shows loading spinner when time period changes
+- ✅ Error rate and breakdown display loading states during data fetch
+- ✅ Improved user feedback for error data loading
+- ✅ Removed duplicate error dropdown from Product Usage header (kept the one in conversation details section)
 
 ## File Structure
 
