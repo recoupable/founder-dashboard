@@ -115,6 +115,10 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 - ✅ Error rate and breakdown display loading states during data fetch
 - ✅ Improved user feedback for error data loading
 - ✅ Removed duplicate error dropdown from Product Usage header (kept the one in conversation details section)
+- ✅ Leaderboard defaults to "Sort by Errors" for better error visibility
+- ✅ Centered modal popup shows detailed error information when clicking any error badge (tool name, error type, timestamp, error message)
+- ✅ Modal features dimmed background overlay, scrollable content, and responsive design
+- ✅ Both small circular error badges and "Sort by Errors" badges trigger the same modal for consistent UX
 
 ## File Structure
 

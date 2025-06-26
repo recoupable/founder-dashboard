@@ -90,7 +90,7 @@ export default function ConversationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [conversationDetail, setConversationDetail] = useState<ConversationDetail | null>(null);
-  const [leaderboardSort, setLeaderboardSort] = useState('consistency');
+  const [leaderboardSort, setLeaderboardSort] = useState('errors');
   const [leaderboardFilter, setLeaderboardFilter] = useState<'all' | 'pmf-ready' | 'power-users'>('all');
   const [saveAnnotationError, setSaveAnnotationError] = useState<string | null>(null);
 
@@ -238,9 +238,17 @@ export default function ConversationsPage() {
   // Add state to store per-user consistency (number of active days in period)
   const [userConsistency, setUserConsistency] = useState<Record<string, number>>({});
 
-  // Add state for user error counts (last 24 hours)
+  // Add state for user error counts and details
   const [userErrorCounts, setUserErrorCounts] = useState<Record<string, number>>({});
+  const [userErrorDetails, setUserErrorDetails] = useState<Record<string, Array<{
+    id: string;
+    error_message: string;
+    error_type: string;
+    tool_name: string;
+    error_timestamp: string;
+  }>>>({});
   const [userErrorsLoading, setUserErrorsLoading] = useState(false);
+  const [showErrorPopup, setShowErrorPopup] = useState<string | null>(null); // Track which user's error popup is open
 
   // Add state for consistency loading
   const [consistencyLoading, setConsistencyLoading] = useState(false);
@@ -459,6 +467,21 @@ export default function ConversationsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showErrorDropdown])
 
+  // Close error popup when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showErrorPopup) {
+        const target = event.target as HTMLElement
+        if (!target.closest('.error-popup-container')) {
+          setShowErrorPopup(null)
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showErrorPopup])
+
   // Fetch user error counts for selected time period
   useEffect(() => {
     const fetchUserErrors = async () => {
@@ -481,11 +504,26 @@ export default function ConversationsPage() {
         });
         
         if (response.ok && data.errors) {
-          // Count errors by user_email (from API join)
+          // Count errors and store details by user_email (from API join)
           const errorCountsByEmail: Record<string, number> = {};
+          const errorDetailsByEmail: Record<string, Array<{
+            id: string;
+            error_message: string;
+            error_type: string;
+            tool_name: string;
+            error_timestamp: string;
+          }>> = {};
           
           console.log('🔍 [DASHBOARD] Processing errors...');
-          data.errors.forEach((error: { user_email?: string, room_id?: string, error_message?: string }, index: number) => {
+          data.errors.forEach((error: { 
+            id?: string;
+            user_email?: string; 
+            room_id?: string; 
+            error_message?: string;
+            error_type?: string;
+            tool_name?: string;
+            error_timestamp?: string;
+          }, index: number) => {
             if (index < 3) {
               console.log(`🔍 [DASHBOARD] Error ${index + 1}:`, { 
                 user_email: error.user_email, 
@@ -495,7 +533,20 @@ export default function ConversationsPage() {
             }
             
             if (error.user_email) {
+              // Count errors
               errorCountsByEmail[error.user_email] = (errorCountsByEmail[error.user_email] || 0) + 1;
+              
+              // Store error details
+              if (!errorDetailsByEmail[error.user_email]) {
+                errorDetailsByEmail[error.user_email] = [];
+              }
+              errorDetailsByEmail[error.user_email].push({
+                id: error.id || '',
+                error_message: error.error_message || 'Unknown error',
+                error_type: error.error_type || 'Unknown',
+                tool_name: error.tool_name || 'Unknown',
+                error_timestamp: error.error_timestamp || ''
+              });
             }
           });
           
@@ -503,6 +554,7 @@ export default function ConversationsPage() {
           console.log('🔍 [DASHBOARD] Total users with errors:', Object.keys(errorCountsByEmail).length);
           
           setUserErrorCounts(errorCountsByEmail);
+          setUserErrorDetails(errorDetailsByEmail);
         } else {
           console.warn('🔍 [DASHBOARD] No errors data or API failed:', data);
         }
@@ -1659,18 +1711,22 @@ export default function ConversationsPage() {
                                   )}
                                 </div>
                                 
-                                {/* Error badge - show if user has errors in last 24 hours */}
+                                                                {/* Error badge - show if user has errors */}
                                 {userErrorCounts[user.email] && userErrorCounts[user.email] > 0 && (
-                                  <span 
-                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium text-white ${
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowErrorPopup(showErrorPopup === user.email ? null : user.email);
+                                    }}
+                                    className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium text-white cursor-pointer hover:opacity-80 transition-opacity ${
                                       userErrorCounts[user.email] >= 3 ? 'bg-red-500' :
                                       userErrorCounts[user.email] >= 2 ? 'bg-orange-500' :
                                       'bg-yellow-500'
                                     }`}
-                                    title={`${userErrorCounts[user.email]} error${userErrorCounts[user.email] > 1 ? 's' : ''} in last 24 hours`}
+                                    title={`${userErrorCounts[user.email]} error${userErrorCounts[user.email] > 1 ? 's' : ''} - click for details`}
                                   >
                                     {userErrorCounts[user.email]}
-                                  </span>
+                                  </button>
                                 )}
                                 
                                 {/* Show loading indicator if errors are being fetched */}
@@ -1714,17 +1770,20 @@ export default function ConversationsPage() {
                             )}
                             {/* Error badge - only show when sorting by errors */}
                             {leaderboardSort === 'errors' && (
-                              <span 
-                                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center ${
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowErrorPopup(showErrorPopup === user.email ? null : user.email);
+                                }}
+                                className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold min-w-20 text-center cursor-pointer hover:opacity-80 transition-opacity ${
                                   (userErrorCounts[user.email] || 0) >= 3 ? 'bg-red-50 text-red-700 border border-red-200' :
                                   (userErrorCounts[user.email] || 0) >= 2 ? 'bg-orange-50 text-orange-700 border border-orange-200' :
                                   (userErrorCounts[user.email] || 0) > 0 ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' :
                                   'bg-gray-50 text-gray-600 border border-gray-200'
                                 }`}
-                                title={`${userErrorCounts[user.email] || 0} error${(userErrorCounts[user.email] || 0) !== 1 ? 's' : ''} in last 24 hours`}
                               >
                                 {userErrorCounts[user.email] || 0} errors
-                              </span>
+                              </button>
                             )}
                             {/* Actions/messages/reports/errors number */}
                             <span className="ml-2 text-lg font-bold text-gray-900 min-w-12 text-right inline-block">
@@ -2442,6 +2501,72 @@ export default function ConversationsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Error Details Modal */}
+      {showErrorPopup && userErrorDetails[showErrorPopup] && userErrorDetails[showErrorPopup].length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 error-popup-container">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Error Details - {showErrorPopup}
+              </h3>
+              <button
+                onClick={() => setShowErrorPopup(null)}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              <div className="mb-4 text-sm text-gray-600">
+                Showing {userErrorDetails[showErrorPopup].length} error{userErrorDetails[showErrorPopup].length !== 1 ? 's' : ''} for this user
+              </div>
+              
+              <div className="space-y-4">
+                {userErrorDetails[showErrorPopup].map((error) => (
+                  <div key={error.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    {/* Error Header */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
+                          {error.tool_name || 'Unknown Tool'}
+                        </span>
+                        <span className="px-3 py-1 bg-red-100 text-red-800 text-sm font-medium rounded-full">
+                          {error.error_type || 'Unknown Type'}
+                        </span>
+                      </div>
+                      <span className="text-gray-500 text-sm">
+                        {new Date(error.error_timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    
+                    {/* Error Message */}
+                    <div className="mb-3">
+                      <h4 className="font-medium text-gray-900 mb-2">Error Message:</h4>
+                      <p className="text-sm text-gray-700 bg-white p-3 rounded border leading-relaxed">
+                        {error.error_message || 'No error message available'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="flex justify-end p-6 border-t border-gray-200 bg-gray-50">
+              <button
+                onClick={() => setShowErrorPopup(null)}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 } 
