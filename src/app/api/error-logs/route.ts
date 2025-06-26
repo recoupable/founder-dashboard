@@ -27,11 +27,18 @@ export async function GET(request: Request) {
 
     console.log(`🔍 [ERROR-LOGS API] Using service role key for admin access`)
     
-    // 1. Fetch ALL error logs (no time filtering for now)
-    console.log(`🔍 [ERROR-LOGS API] Step 1: Fetching ALL error logs...`)
+    // 1. Fetch error logs for the specified time window
+    console.log(`🔍 [ERROR-LOGS API] Step 1: Fetching error logs for last ${days} days...`)
+    
+    // Calculate time range
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days)
+    console.log(`🔍 [ERROR-LOGS API] Filtering from: ${startDate.toISOString()}`)
+    
     const { data: errorLogs, error: errorLogsError } = await supabase
       .from('error_logs')
       .select('*')
+      .gte('error_timestamp', startDate.toISOString())
       .order('error_timestamp', { ascending: false })
       .limit(1000) // Reasonable limit to avoid overwhelming
     
