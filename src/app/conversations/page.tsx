@@ -461,23 +461,48 @@ export default function ConversationsPage() {
       try {
         setUserErrorsLoading(true);
         
+        console.log('🔍 [DASHBOARD] Fetching user errors from last 24 hours...');
+        
         // Fetch errors from last 24 hours
         const response = await fetch('/api/error-logs?days=1');
         const data = await response.json();
         
+        console.log('🔍 [DASHBOARD] API response:', { 
+          ok: response.ok, 
+          status: response.status,
+          totalErrors: data.totalErrors,
+          errorsCount: data.errors?.length,
+          sampleError: data.errors?.[0]
+        });
+        
         if (response.ok && data.errors) {
-          // Count errors by email
+          // Count errors by user_email (from API join)
           const errorCountsByEmail: Record<string, number> = {};
-          data.errors.forEach((error: { user_email?: string }) => {
+          
+          console.log('🔍 [DASHBOARD] Processing errors...');
+          data.errors.forEach((error: { user_email?: string, room_id?: string, error_message?: string }, index: number) => {
+            if (index < 3) {
+              console.log(`🔍 [DASHBOARD] Error ${index + 1}:`, { 
+                user_email: error.user_email, 
+                room_id: error.room_id,
+                error_message: error.error_message?.substring(0, 50) + '...'
+              });
+            }
+            
             if (error.user_email) {
               errorCountsByEmail[error.user_email] = (errorCountsByEmail[error.user_email] || 0) + 1;
             }
           });
           
+          console.log('🔍 [DASHBOARD] Final error counts by email:', errorCountsByEmail);
+          console.log('🔍 [DASHBOARD] Total users with errors:', Object.keys(errorCountsByEmail).length);
+          
           setUserErrorCounts(errorCountsByEmail);
+        } else {
+          console.warn('🔍 [DASHBOARD] No errors data or API failed:', data);
         }
       } catch (error) {
-        console.error('Failed to fetch user error counts:', error);
+        console.error('❌ [DASHBOARD] Failed to fetch user error counts:', error);
       } finally {
         setUserErrorsLoading(false);
       }
@@ -488,7 +513,7 @@ export default function ConversationsPage() {
     // Refresh every 2 minutes
     const interval = setInterval(fetchUserErrors, 2 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [])
+  }, []);
 
   React.useEffect(() => {
     async function fetchReports() {

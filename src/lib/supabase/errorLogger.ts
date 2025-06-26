@@ -76,7 +76,6 @@ export async function logErrorToSupabase(context: ErrorContext): Promise<boolean
       .insert({
         raw_message: formattedMessage,
         telegram_message_id: errorFingerprint,
-        user_email: context.email || null,
         room_id: context.roomId || null,
         error_timestamp: new Date().toISOString(),
         error_message: context.error.message,
@@ -203,4 +202,6 @@ ${context.messages[context.messages.length - 1]?.content || 'No content'}` : ''}
 function formatErrorForTelegram(context: ErrorContext): string {
   // Reuse the existing format or create a similar one
   return formatErrorForDatabase(context)
-} 
+}
+
+ 

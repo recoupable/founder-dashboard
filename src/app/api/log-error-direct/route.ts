@@ -33,13 +33,12 @@ export async function POST(request: Request) {
 
     console.log(`🚨 Direct error log: ${errorData.userEmail} - ${errorData.toolName || 'Unknown'}`)
     
-    // Insert into Supabase
+    // Insert into Supabase (removed user_email since it doesn't exist in the table)
     const { data, error } = await supabase
       .from('error_logs')
       .insert({
         raw_message: formatErrorMessage(errorData),
         telegram_message_id: parseInt(errorId.replace(/\D/g, '').slice(0, 10)), // Convert to numeric ID
-        user_email: errorData.userEmail,
         room_id: errorData.roomId,
         error_timestamp: new Date().toISOString(),
         error_message: errorData.errorMessage,

@@ -7,15 +7,15 @@ The CEO Dashboard is a Next.js application that provides real-time analytics and
 ## Key Components
 
 ### Error Logging System
-- `/src/lib/supabase/errorLogger.ts`: Direct Supabase error logging helper that bypasses Telegram API limitations for immediate error tracking. Maps ErrorContext to database schema with duplicate prevention.
+- `/src/lib/supabase/errorLogger.ts`: Direct Supabase error logging helper that logs to the new error_logs table structure (without user_email column)
+- `/src/app/api/error-logs/route.ts`: Primary error log aggregation and analytics API that joins error_logs → rooms → account_emails to get user emails for dashboard display
+- `/src/app/api/telegram-errors/route.ts`: Legacy endpoint updated to use error_logs table for backward compatibility
 - `/src/app/api/add-errors-manual/route.ts`: Manual error insertion API for backfilling historical errors
+- `/src/app/api/log-error-direct/route.ts`: Direct error logging endpoint that bypasses Telegram API, updated to work with new table structure
 - `/src/app/api/sync-telegram-errors/route.ts`: Enhanced Telegram error sync with comprehensive debugging and support for channels/supergroups
-- `/src/app/api/telegram-debug/route.ts`: Comprehensive Telegram bot diagnostic tool with permissions checking and troubleshooting
-- `/src/app/api/log-error-direct/route.ts`: Direct error logging API endpoint for external applications
-- `/docs/telegram-bot-fix.md`: Documentation about Telegram sync limitations and solutions
+- `/src/app/api/telegram-debug/route.ts`: Comprehensive Telegram bot diagnostics with connection testing and configuration validation
 
 ### Analytics & Metrics
-- `/src/app/api/error-logs/route.ts`: Error log aggregation and analytics API
 - `/src/app/api/active-users/route.ts`: Active user tracking and analytics
 - `/src/app/api/conversations/route.ts`: Conversation analytics and message counting with account_id and artist_id tracking, enhanced search through message content
 - `/src/components/dashboard/ErrorReport.tsx`: Real-time error reporting component
@@ -127,6 +127,8 @@ src/
 │   └── utils.ts               # General utilities
 └── types/                     # TypeScript type definitions
 ```
+
+**Current Status**: System migrated to use new error_logs table structure. Table exists but is empty - needs to be populated with error data to show results in dashboard.
 
 
 

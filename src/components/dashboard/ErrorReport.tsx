@@ -2,12 +2,24 @@
 
 import { useState, useEffect } from 'react'
 
+interface ErrorLog {
+  id: string
+  user_email?: string
+  room_id?: string
+  error_timestamp: string
+  error_message: string
+  error_type: string
+  tool_name?: string
+  last_message?: string
+  stack_trace?: string
+  created_at: string
+}
+
 interface ErrorReport {
-  date: string
-  totalMessages: number // Not used anymore but keeping for API compatibility
   totalErrors: number
-  errorRate: number // Not used anymore but keeping for API compatibility
-  errorBreakdown: Record<string, number> // Now contains tool names instead of error types
+  errorBreakdown: Record<string, number>
+  timeRange: string
+  errors: ErrorLog[]
 }
 
 export function ErrorReport() {
@@ -22,7 +34,7 @@ export function ErrorReport() {
   const fetchErrorData = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/telegram-errors?days=${days}`)
+      const response = await fetch(`/api/error-logs?days=${days}`)
       const data = await response.json()
       
       if (response.ok) {
