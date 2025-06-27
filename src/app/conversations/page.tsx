@@ -147,8 +147,8 @@ export default function ConversationsPage() {
 
   const [messagesByUser, setMessagesByUser] = useState<Record<string, number>>({});
 
-  // Add state for segmentReportsByUser
-  const [segmentReportsByUser, setSegmentReportsByUser] = useState<Record<string, number>>({});
+  // Add state for scheduledActionsByUser
+  const [scheduledActionsByUser, setScheduledActionsByUser] = useState<Record<string, number>>({});
   
   // Add loading states for leaderboard data
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
@@ -163,6 +163,9 @@ export default function ConversationsPage() {
 
   // Add state for expanded user analysis
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [expandedScheduledActions, setExpandedScheduledActions] = useState<string | null>(null);
+  const [userScheduledActions, setUserScheduledActions] = useState<Record<string, ScheduledAction[]>>({});
+  const [scheduledActionsLoading, setScheduledActionsLoading] = useState<Record<string, boolean>>({});
   
   // Add state for automatic user analysis
   interface UserAnalysis {
@@ -198,6 +201,22 @@ export default function ConversationsPage() {
     artistUsage: ArtistUsage[];
     totalRooms: number;
     totalMemories: number;
+  }
+
+  interface ScheduledAction {
+    id: string;
+    created_at: string;
+    enabled: boolean;
+    last_run: string | null;
+    next_run: string | null;
+    title: string;
+    prompt: string;
+    schedule: string;
+    artist_account_id: string;
+    artist_name: string;
+    action_type: string;
+    action_data: Record<string, unknown>;
+    description: string;
   }
   const [userActivityDetails, setUserActivityDetails] = useState<Record<string, UserActivityDetails>>({});
   const [userActivityLoading, setUserActivityLoading] = useState<Record<string, boolean>>({});
@@ -327,14 +346,14 @@ export default function ConversationsPage() {
             user.totalActivity += count;
           });
           
-          // Add segment report counts
-          Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+          // Add scheduled action counts
+          Object.entries(scheduledActionsByUser).forEach(([email, count]) => {
             if (!userMap.has(email)) {
               userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
             }
             const user = userMap.get(email)!;
-            user.reports = count;
-            user.totalActivity += count;
+            user.reports = count as number;
+            user.totalActivity += count as number;
           });
           
           // Convert to array and filter (same as display logic)
@@ -374,7 +393,7 @@ export default function ConversationsPage() {
     }
     
     fetchErrorData()
-  }, [timeFilter, messagesByUser, segmentReportsByUser, excludeTestEmails, testEmails])
+  }, [timeFilter, messagesByUser, scheduledActionsByUser, excludeTestEmails, testEmails])
 
   // Auto-refresh error data every 2 minutes (since data comes from Supabase now)
   useEffect(() => {
@@ -401,14 +420,14 @@ export default function ConversationsPage() {
             user.totalActivity += count;
           });
           
-          // Add segment report counts
-          Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+          // Add scheduled action counts
+          Object.entries(scheduledActionsByUser).forEach(([email, count]) => {
             if (!userMap.has(email)) {
               userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
             }
             const user = userMap.get(email)!;
-            user.reports = count;
-            user.totalActivity += count;
+            user.reports = count as number;
+            user.totalActivity += count as number;
           });
           
           // Convert to array and filter (same as display logic)
@@ -450,7 +469,7 @@ export default function ConversationsPage() {
     
     // Clean up interval on component unmount
     return () => clearInterval(interval)
-  }, [timeFilter, messagesByUser, segmentReportsByUser, excludeTestEmails, testEmails])
+  }, [timeFilter, messagesByUser, scheduledActionsByUser, excludeTestEmails, testEmails])
 
   // Close error dropdown when clicking outside
   useEffect(() => {
@@ -825,7 +844,7 @@ export default function ConversationsPage() {
       .finally(() => setLeaderboardLoading(false));
   }, [timeFilter]);
 
-  // Fetch segment report counts from the API when timeFilter changes
+  // Fetch scheduled action counts from the API when timeFilter changes
   useEffect(() => {
     const { start, end } = getDateRangeForFilter(timeFilter);
     let url = '/api/conversations/leaderboard';
@@ -834,12 +853,12 @@ export default function ConversationsPage() {
     }
     fetch(url)
       .then(res => res.json())
-      .then((data: { segmentReports: { email: string, segment_report_count: number }[] }) => {
+      .then((data: { scheduledActions: { email: string, scheduled_action_count: number }[] }) => {
         const map: Record<string, number> = {};
-        for (const row of data.segmentReports || []) {
-          map[row.email] = row.segment_report_count;
+        for (const row of data.scheduledActions || []) {
+          map[row.email] = row.scheduled_action_count;
         }
-        setSegmentReportsByUser(map);
+        setScheduledActionsByUser(map);
       });
   }, [timeFilter]);
 
@@ -1301,6 +1320,38 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trendUser, timeFilter]);
 
+  const fetchUserScheduledActions = async (email: string) => {
+    if (userScheduledActions[email]) return; // Already have data
+    
+    try {
+      setScheduledActionsLoading(prev => ({ ...prev, [email]: true }));
+      
+      const { start, end } = getDateRangeForFilter(timeFilter);
+      const params = new URLSearchParams({
+        email,
+        ...(start && { start_date: start }),
+        ...(end && { end_date: end })
+      });
+      
+      const response = await fetch(`/api/user-scheduled-actions?${params}`);
+      const data = await response.json();
+      
+      console.log('Frontend received scheduled actions data:', data);
+      
+      if (response.ok && data.scheduled_actions) {
+        console.log('Setting scheduled actions for', email, ':', data.scheduled_actions);
+        setUserScheduledActions(prev => ({
+          ...prev,
+          [email]: data.scheduled_actions
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch user scheduled actions:', error);
+    } finally {
+      setScheduledActionsLoading(prev => ({ ...prev, [email]: false }));
+    }
+  };
+
   return (
     <main className="p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
@@ -1383,14 +1434,14 @@ export default function ConversationsPage() {
                           user.totalActivity += count;
                         });
                         
-                        // Add segment report counts
-                        Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+                        // Add scheduled action counts
+                        Object.entries(scheduledActionsByUser).forEach(([email, count]) => {
                           if (!userMap.has(email)) {
                             userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
                           }
                           const user = userMap.get(email)!;
-                          user.reports = count;
-                          user.totalActivity += count;
+                          user.reports = count as number;
+                          user.totalActivity += count as number;
                         });
                         
                         // Convert to array and filter out test emails if needed
@@ -1543,10 +1594,10 @@ export default function ConversationsPage() {
                     value={leaderboardSort}
                     onChange={(e) => setLeaderboardSort(e.target.value)}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    title="Sort leaderboard by messages, reports, all actions, or activity growth"
+                    title="Sort leaderboard by messages, scheduled actions, all actions, or activity growth"
                   >
                     <option value="messages">Sort by Messages</option>
-                    <option value="reports">Sort by Reports</option>
+                    <option value="reports">Sort by Scheduled Actions</option>
                     <option value="activity">Sort by All Actions</option>
                     <option value="retention">Sort by Activity Growth</option>
                     <option value="consistency">Sort by Consistency</option>
@@ -1583,14 +1634,14 @@ export default function ConversationsPage() {
                       user.totalActivity += count;
                     });
                     
-                    // Add segment report counts
-                    Object.entries(segmentReportsByUser).forEach(([email, count]) => {
+                    // Add scheduled action counts
+                    Object.entries(scheduledActionsByUser).forEach(([email, count]) => {
                       if (!userMap.has(email)) {
                         userMap.set(email, { email, messages: 0, reports: 0, totalActivity: 0 });
                       }
                       const user = userMap.get(email)!;
-                      user.reports = count;
-                      user.totalActivity += count;
+                      user.reports = count as number;
+                      user.totalActivity += count as number;
                     });
                     
                     // Convert to array and filter out test emails if needed
@@ -1737,7 +1788,20 @@ export default function ConversationsPage() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="text-sm text-gray-500">
-                                  {user.messages} messages, {user.reports} reports
+                                  {user.messages} messages, <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (expandedScheduledActions === user.email) {
+                                        setExpandedScheduledActions(null);
+                                      } else {
+                                        setExpandedScheduledActions(user.email);
+                                        fetchUserScheduledActions(user.email);
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                                  >
+                                    {user.reports} scheduled actions
+                                  </button>
                                 </div>
                                 {userProfiles[user.email] && (
                                   <div className="flex items-center gap-1">
@@ -1785,7 +1849,7 @@ export default function ConversationsPage() {
                                 {userErrorCounts[user.email] || 0} errors
                               </button>
                             )}
-                            {/* Actions/messages/reports/errors number */}
+                            {/* Actions/messages/scheduled actions/errors number */}
                             <span className="ml-2 text-lg font-bold text-gray-900 min-w-12 text-right inline-block">
                               {leaderboardSort === 'messages' ? user.messages : 
                                leaderboardSort === 'reports' ? user.reports : 
@@ -1794,6 +1858,95 @@ export default function ConversationsPage() {
                             </span>
                           </div>
                         </button>
+                        
+                        {/* Expanded Scheduled Actions Card */}
+                        {expandedScheduledActions === user.email && (
+                          <div className="mt-3 p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+                            <div className="flex justify-between items-center mb-6">
+                              <h4 className="text-lg font-medium text-gray-900">Scheduled Actions</h4>
+                              <button
+                                onClick={() => setExpandedScheduledActions(null)}
+                                className="text-gray-400 hover:text-gray-600"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            
+                            {scheduledActionsLoading[user.email] ? (
+                              <div className="flex items-center justify-center py-8">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400"></div>
+                                <span className="ml-2 text-sm text-gray-600">Loading...</span>
+                              </div>
+                            ) : userScheduledActions[user.email]?.length > 0 ? (
+                              <div className="space-y-6">
+                                {userScheduledActions[user.email].map((action) => (
+                                  <div key={action.id} className="border-b border-gray-100 pb-6 last:border-b-0 last:pb-0">
+                                    {/* Title */}
+                                    <div className="flex items-start justify-between mb-2">
+                                      <h5 className="text-base font-medium text-gray-900 leading-tight">{action.title}</h5>
+                                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                        action.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                                      }`}>
+                                        {action.enabled ? 'Active' : 'Inactive'}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Artist & Schedule */}
+                                    <div className="mb-4 space-y-1">
+                                      <div className="text-sm text-gray-600">
+                                        <span className="font-medium">Artist:</span> {action.artist_name}
+                                      </div>
+                                      <div className="text-sm text-gray-600">
+                                        <span className="font-medium">Schedule:</span>{' '}
+                                        {action.schedule === '0 9 * * 1' ? 'Every Monday at 9 AM' : 
+                                         action.schedule === '0 9 * * 0' ? 'Every Sunday at 9 AM' :
+                                         action.schedule === '0 9 * * 2' ? 'Every Tuesday at 9 AM' :
+                                         action.schedule === '0 9 * * 3' ? 'Every Wednesday at 9 AM' :
+                                         action.schedule === '0 9 * * 4' ? 'Every Thursday at 9 AM' :
+                                         action.schedule === '0 9 * * 5' ? 'Every Friday at 9 AM' :
+                                         action.schedule === '0 9 * * 6' ? 'Every Saturday at 9 AM' :
+                                         action.schedule === '0 12 * * *' ? 'Daily at 12 PM' :
+                                         action.schedule === '0 9 * * *' ? 'Daily at 9 AM' :
+                                         action.schedule === '0 18 * * *' ? 'Daily at 6 PM' :
+                                         action.schedule || 'No schedule'}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Prompt - Collapsed by default */}
+                                    {action.prompt && (
+                                      <div className="mb-4">
+                                        <details className="group">
+                                          <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-700 font-medium">
+                                            View prompt
+                                          </summary>
+                                          <div className="mt-2 text-sm text-gray-700 bg-gray-50 p-3 rounded border-l-2 border-blue-200">
+                                            {action.prompt}
+                                          </div>
+                                        </details>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Run Info */}
+                                    <div className="flex gap-8 text-xs text-gray-500">
+                                      <div>
+                                        <span className="font-medium">Last run:</span>{' '}
+                                        {action.last_run ? new Date(action.last_run).toLocaleDateString() : 'Never'}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Next run:</span>{' '}
+                                        {action.next_run ? new Date(action.next_run).toLocaleDateString() : 'Not scheduled'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center py-8 text-gray-500">
+                                No scheduled actions found
+                              </div>
+                            )}
+                          </div>
+                        )}
                         
                         {/* Streamlined Expanded User Analysis Card */}
                         {expandedUser === user.email && (
@@ -1885,9 +2038,9 @@ export default function ConversationsPage() {
                                     <span className="font-medium text-gray-700">Pattern:</span>
                                     <span className="text-gray-600">
                                       {user.totalActivity === 0 ? 'No activity yet' :
-                                       user.messages === 0 ? 'Reports only' :
+                                       user.messages === 0 ? 'Scheduled actions only' :
                                        user.reports === 0 ? 'Messages only' :
-                                       `${Math.round((user.messages / user.totalActivity) * 100)}% messages, ${Math.round((user.reports / user.totalActivity) * 100)}% reports`}
+                                       `${Math.round((user.messages / user.totalActivity) * 100)}% messages, ${Math.round((user.reports / user.totalActivity) * 100)}% scheduled actions`}
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-2 text-sm">
@@ -2333,7 +2486,7 @@ export default function ConversationsPage() {
                   {(() => {
                     // Check if we have any data to show
                     const hasMessages = Object.keys(messagesByUser).length > 0;
-                    const hasReports = Object.keys(segmentReportsByUser).length > 0;
+                    const hasReports = Object.keys(scheduledActionsByUser).length > 0;
                     
                     if (!hasMessages && !hasReports) {
                       return (
