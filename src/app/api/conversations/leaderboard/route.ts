@@ -22,27 +22,27 @@ export async function GET(request: Request) {
   const previousStart = new Date(startDate.getTime() - periodDuration - (24 * 60 * 60 * 1000)).toISOString();
   const previousEnd = start;
 
-  // Get both segment reports AND message counts for comprehensive activity data
+  // Get both scheduled actions AND message counts for comprehensive activity data
   
-  // 1. Get segment reports for both periods
-  const [currentReportsData, previousReportsData] = await Promise.all([
+  // 1. Get scheduled actions for both periods
+  const [currentActionsData, previousActionsData] = await Promise.all([
     supabase
-      .from('rooms')
-      .select('account_id, updated_at, topic')
-      .gte('updated_at', start)
-      .lte('updated_at', end),
+      .from('scheduled_actions')
+      .select('account_id, created_at')
+      .gte('created_at', start)
+      .lte('created_at', end),
     supabase
-      .from('rooms')
-      .select('account_id, updated_at, topic')
-      .gte('updated_at', previousStart)
-      .lte('updated_at', previousEnd)
+      .from('scheduled_actions')
+      .select('account_id, created_at')
+      .gte('created_at', previousStart)
+      .lte('created_at', previousEnd)
   ]);
 
-  if (currentReportsData.error) {
-    return NextResponse.json({ error: currentReportsData.error.message }, { status: 500 });
+  if (currentActionsData.error) {
+    return NextResponse.json({ error: currentActionsData.error.message }, { status: 500 });
   }
-  if (previousReportsData.error) {
-    return NextResponse.json({ error: previousReportsData.error.message }, { status: 500 });
+  if (previousActionsData.error) {
+    return NextResponse.json({ error: previousActionsData.error.message }, { status: 500 });
   }
 
   // 2. Get message counts for current, previous, and historical periods
@@ -79,8 +79,8 @@ export async function GET(request: Request) {
 
   // 3. Get account identifiers (emails/wallets) for all users
   const allAccountIds = Array.from(new Set([
-    ...(currentReportsData.data as { account_id: string }[]).map(row => row.account_id),
-    ...(previousReportsData.data as { account_id: string }[]).map(row => row.account_id),
+    ...(currentActionsData.data as { account_id: string }[]).map(row => row.account_id),
+    ...(previousActionsData.data as { account_id: string }[]).map(row => row.account_id),
     ...(currentMessagesData.data || []).filter((row: { account_id?: string }) => row && row.account_id).map((row: { account_id: string }) => row.account_id),
     ...(previousMessagesData.data || []).filter((row: { account_id?: string }) => row && row.account_id).map((row: { account_id: string }) => row.account_id)
   ].filter(Boolean))); // Remove any undefined/null values
@@ -116,24 +116,20 @@ export async function GET(request: Request) {
     }
   });
 
-  // 4. Count segment reports by user for both periods
-  const currentReportsCounts: Record<string, number> = {};
-  for (const row of currentReportsData.data as { account_id: string; topic: string }[]) {
-    if (row?.topic?.toLowerCase?.().startsWith('segment:')) {
-      const identifier = accountToIdentifier.get(row.account_id);
-      if (identifier) {
-        currentReportsCounts[identifier] = (currentReportsCounts[identifier] || 0) + 1;
-      }
+  // 4. Count scheduled actions by user for both periods
+  const currentActionsCounts: Record<string, number> = {};
+  for (const row of currentActionsData.data as { account_id: string }[]) {
+    const identifier = accountToIdentifier.get(row.account_id);
+    if (identifier) {
+      currentActionsCounts[identifier] = (currentActionsCounts[identifier] || 0) + 1;
     }
   }
 
-  const previousReportsCounts: Record<string, number> = {};
-  for (const row of previousReportsData.data as { account_id: string; topic: string }[]) {
-    if (row?.topic?.toLowerCase?.().startsWith('segment:')) {
-      const identifier = accountToIdentifier.get(row.account_id);
-      if (identifier) {
-        previousReportsCounts[identifier] = (previousReportsCounts[identifier] || 0) + 1;
-      }
+  const previousActionsCounts: Record<string, number> = {};
+  for (const row of previousActionsData.data as { account_id: string }[]) {
+    const identifier = accountToIdentifier.get(row.account_id);
+    if (identifier) {
+      previousActionsCounts[identifier] = (previousActionsCounts[identifier] || 0) + 1;
     }
   }
 
@@ -166,25 +162,25 @@ export async function GET(request: Request) {
     }
   }
 
-  // 6. Calculate TOTAL activity (messages + reports) and trends for each user
+  // 6. Calculate TOTAL activity (messages + scheduled actions) and trends for each user
   const allUsers = new Set([
-    ...Object.keys(currentReportsCounts), 
-    ...Object.keys(previousReportsCounts),
+    ...Object.keys(currentActionsCounts), 
+    ...Object.keys(previousActionsCounts),
     ...Object.keys(currentMessagesCounts),
     ...Object.keys(previousMessagesCounts),
     ...Object.keys(historicalMessagesCounts)
   ]);
 
   const leaderboard = Array.from(allUsers).map(email => {
-    const currentReports = currentReportsCounts[email] || 0;
-    const previousReports = previousReportsCounts[email] || 0;
+    const currentActions = currentActionsCounts[email] || 0;
+    const previousActions = previousActionsCounts[email] || 0;
     const currentMessages = currentMessagesCounts[email] || 0;
     const previousMessages = previousMessagesCounts[email] || 0;
     const historicalMessages = historicalMessagesCounts[email] || 0;
     
-    // Total activity = messages + reports
-    const currentPeriodActions = currentMessages + currentReports;
-    const previousPeriodActions = previousMessages + previousReports;
+    // Total activity = messages + scheduled actions
+    const currentPeriodActions = currentMessages + currentActions;
+    const previousPeriodActions = previousMessages + previousActions;
     
     // Calculate percentage change
     let percentChange: number | null = null;
@@ -219,14 +215,14 @@ export async function GET(request: Request) {
     };
   }).filter(user => user.currentPeriodActions > 0); // Only include users with current activity
 
-  // Also format segment reports for backward compatibility
-  const segmentReports = Object.entries(currentReportsCounts).map(([email, segment_report_count]) => ({ 
+  // Also format scheduled actions for backward compatibility
+  const scheduledActions = Object.entries(currentActionsCounts).map(([email, scheduled_action_count]) => ({ 
     email, 
-    segment_report_count 
+    scheduled_action_count 
   }));
 
   return NextResponse.json({ 
     leaderboard,
-    segmentReports 
+    scheduledActions 
   });
 } 
